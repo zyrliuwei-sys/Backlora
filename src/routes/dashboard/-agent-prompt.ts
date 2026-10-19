@@ -94,7 +94,7 @@ ${browser}
 1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数；start 返回 task=null 时结束。任务范围为 all_eligible 时，接口返回的每个任务都要尝试，不要因为类型不同或费用未知就跳过。
 2. 按接口文档核对任务、租约和产品。先看 product.submission_readiness：blocking_fields 不为空时直接回传 needs_user，写明缺失或错误的字段，不要打开目标站；其余字段按目标站要求处理。检查通过后，从 opportunity.submission_url 进入，按页面上的真实入口操作。
 3. 先读任务备注（description、user_notes、library_notes、product.agent_submission_note）和目标站要求，再填写产品资料，包括表单需要且 product 中已有的资料。提交前检查必填项、文件上传和校验错误。
-4. 需要登录时，优先使用浏览器里已登录的第一个 Google 账号；不行再用 product 中的邮箱注册。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。尽量复用已有账号、资料或 listing，避免重复创建。
+4. 需要登录时，优先使用浏览器里已登录的第一个 Google 账号；不行再用 product 中的邮箱注册。目标站要求设置或确认密码时（包括 Google 登录后要求补设密码），一律填 product.registration_password，这是用户为代注册预先设置并授权使用的密码；登录已有账号时也先试它。registration_password 为 null 时才回传 needs_user，写明需要在网站资料里设置代注册密码。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。尽量复用已有账号、资料或 listing，避免重复创建。
 5. 目标站要求互链时，到 \`{backlinkManagementUrl}\` 配置并确认生效，不改动无关设置。
 6. 租约剩余不足 5 分钟时调用 heartbeat 续租。
 7. 填完表单后直接提交，以目标站明确的收件、审核或公开结果作为证据；登录成功或中途保存都不算提交成功。已收件或进入审核就回传 submitted，不必等上线；已经有公开 listing 时，分别验证页面和外链是否生效。提交超时或结果不明时只做只读核实，仍无法确认就回传 needs_user，不要重复提交。
@@ -151,6 +151,7 @@ GET /api/websites/{website_id}
 | \`social_links\`、\`location\`、\`metadata\`、\`links\` | 社交链接、地址、补充键值、评论锚文本 \`[{ name, url }]\` |
 | \`auto_backlink_enabled\`、\`agent_submission_note\` | 是否允许自动外链、通用提交备注 |
 | \`backlink_management_url\`、\`email_management_url\` | 互链配置地址、邮箱后台地址 |
+| \`registration_password\` | 代注册密码，目标站注册或补设密码时使用；未设置时为 null。只在任务接口（start、查询任务）的 product 里返回，不得写入结果、证据或日志 |
 
 \`submission_readiness\`：
 

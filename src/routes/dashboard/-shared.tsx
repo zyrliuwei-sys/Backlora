@@ -87,6 +87,7 @@ export interface Website {
   emailManagementUrl: string;
   autoBacklinkEnabled: boolean;
   agentSubmissionNote: string;
+  hasRegistrationPassword?: boolean;
   ownerAvatarUrl: string;
   ownerFirstName: string;
   ownerLastName: string;

@@ -910,6 +910,8 @@ export const website = table(
       .notNull()
       .default(''),
     emailManagementUrl: text('email_management_url').notNull().default(''),
+    // Password agents use for new accounts on target sites (encrypted).
+    registrationPassword: text('registration_password').notNull().default(''),
     autoBacklinkEnabled: integer('auto_backlink_enabled', { mode: 'boolean' })
       .notNull()
       .default(true),

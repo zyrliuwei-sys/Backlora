@@ -1,0 +1,75 @@
+name: Deploy to Cloudflare Workers
+
+# Push to main → build + `wrangler deploy` (same as `pnpm run cf:deploy`).
+# wrangler.jsonc and .env.production are gitignored, so they come from repo
+# secrets. Schema migrations are NOT applied here: review them locally and run
+# `wrangler d1 migrations apply <db> --remote` before pushing.
+#
+# Required repository secrets:
+#   CLOUDFLARE_API_TOKEN   token with "Edit Cloudflare Workers" + D1 edit
+#   CLOUDFLARE_ACCOUNT_ID  account id (`npx wrangler whoami`)
+#   WRANGLER_JSONC         full contents of the local wrangler.jsonc
+#   ENV_PRODUCTION         full contents of .env.production (public VITE_* vars)
+
+on:
+  push:
+    branches: ['main']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WRANGLER_JSONC ENV_PRODUCTION; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret $name"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Write deploy config
+        env:
+          WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          printf '%s\n' "$WRANGLER_JSONC" > wrangler.jsonc
+          printf '%s\n' "$ENV_PRODUCTION" > .env.production
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm run cf:deploy

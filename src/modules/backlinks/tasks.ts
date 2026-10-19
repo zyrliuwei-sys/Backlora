@@ -40,7 +40,7 @@ import { getUuid } from '@/lib/hash';
 
 import { libraryNotes, viewBacklink } from './library';
 import { BacklinkError, isHttpUrl, str, strOrNull } from './shared';
-import { productOf, requireWebsite } from './websites';
+import { agentPassword, productOf, requireWebsite } from './websites';
 
 const FINAL = ['submitted', 'live', 'duplicate'] as const;
 
@@ -81,7 +81,10 @@ async function taskView(userId: string, r: WebsiteBacklink) {
     submitted_at: r.submittedAt ? new Date(r.submittedAt).toISOString() : null,
     created_at: new Date(r.createdAt).toISOString(),
     updated_at: new Date(r.updatedAt).toISOString(),
-    product: productOf(w),
+    product: {
+      ...productOf(w),
+      registration_password: await agentPassword(w.id),
+    },
     opportunity: {
       id: r.backlinkId,
       name: entry?.name ?? r.targetDomain,

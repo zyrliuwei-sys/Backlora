@@ -20,6 +20,7 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
+import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
 import {
@@ -63,7 +64,9 @@ export type WebsiteView = Omit<
   | 'socialLinks'
   | 'location'
   | 'metadata'
+  | 'registrationPassword'
 > & {
+  hasRegistrationPassword: boolean;
   screenshotUrls: string[];
   categories: string[];
   tags: string[];
@@ -80,9 +83,14 @@ function pick<K extends string>(keys: readonly K[], src: any, max: number) {
   >;
 }
 
-export function viewWebsite(w: Website): WebsiteView {
+/** The registration password never leaves the server; see agentPassword. */
+export function viewWebsite({
+  registrationPassword,
+  ...w
+}: Website): WebsiteView {
   return {
     ...w,
+    hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
     tags: parseJson<string[]>(w.tags, []),
@@ -141,6 +149,35 @@ export function sanitizeWebsiteInput(
     location: JSON.stringify(pick(LOCATION_KEYS, body?.location, 300)),
     metadata: JSON.stringify(metadata),
   };
+}
+
+/**
+ * `registrationPassword` in a create/update body: a non-empty string sets it,
+ * `clearRegistrationPassword: true` empties it, anything else keeps it.
+ */
+async function passwordFields(
+  body: any
+): Promise<Pick<NewWebsite, 'registrationPassword'>> {
+  if (body?.clearRegistrationPassword === true)
+    return { registrationPassword: '' };
+  const plain =
+    typeof body?.registrationPassword === 'string'
+      ? body.registrationPassword.slice(0, 200)
+      : '';
+  if (!plain.trim()) return {};
+  if (plain.length < 8)
+    throw new BacklinkError('Registration password needs 8+ characters');
+  return { registrationPassword: await encryptSecret(plain) };
+}
+
+/** Plain registration password for agent task payloads only. */
+export async function agentPassword(websiteId: string): Promise<string | null> {
+  const [row]: { p: string }[] = await db()
+    .select({ p: website.registrationPassword })
+    .from(website)
+    .where(eq(website.id, websiteId))
+    .limit(1);
+  return row?.p ? await decryptSecret(row.p) : null;
 }
 
 // ─── Submission readiness ───────────────────────────────────────────────────
@@ -383,7 +420,12 @@ export async function requireWebsite(userId: string, id: string) {
 export async function createWebsite(userId: string, body: any) {
   const [row]: Website[] = await db()
     .insert(website)
-    .values({ id: getUuid(), userId, ...sanitizeWebsiteInput(body) })
+    .values({
+      id: getUuid(),
+      userId,
+      ...sanitizeWebsiteInput(body),
+      ...(await passwordFields(body)),
+    })
     .returning();
   return viewWebsite(row);
 }
@@ -391,7 +433,7 @@ export async function createWebsite(userId: string, body: any) {
 export async function updateWebsite(userId: string, id: string, body: any) {
   const [row]: Website[] = await db()
     .update(website)
-    .set(sanitizeWebsiteInput(body))
+    .set({ ...sanitizeWebsiteInput(body), ...(await passwordFields(body)) })
     .where(
       and(
         eq(website.id, id),
