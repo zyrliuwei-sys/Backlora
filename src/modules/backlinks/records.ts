@@ -196,8 +196,9 @@ export async function addRecordsForBacklinks(
     return true;
   });
   const sourceDomain = domainOf(w.url);
-  // 9 columns per row → 10 rows per statement.
-  for (const part of chunk(fresh, 10)) {
+  // 13 bound params per row (column defaults are bound too) → 7 rows keeps
+  // under D1's 100.
+  for (const part of chunk(fresh, 7)) {
     await db()
       .insert(websiteBacklink)
       .values(

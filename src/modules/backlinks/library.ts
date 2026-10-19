@@ -503,7 +503,9 @@ export async function addToMine(userId: string, backlinkIds: string[]) {
       ).map((r) => r.id)
     );
     const fresh = visible.filter((v) => !saved.has(v.id));
-    for (const rows of chunk(fresh, 20)) {
+    // 7 bound params per row (column defaults are bound too) → 14 rows keeps
+    // under D1's 100.
+    for (const rows of chunk(fresh, 14)) {
       await db()
         .insert(userBacklink)
         .values(
