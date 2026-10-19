@@ -2,10 +2,12 @@ import { createFileRoute, Outlet } from '@tanstack/react-router';
 import {
   Coins,
   CreditCard,
+  FolderKanban,
   Home,
   Key,
   LayoutDashboard,
   LifeBuoy,
+  Link2,
   PenLine,
   Receipt,
   User,

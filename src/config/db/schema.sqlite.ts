@@ -6,7 +6,14 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 const table = sqliteTable;
 
@@ -801,3 +808,213 @@ export const userEvent = table(
 
 export type UserEvent = typeof userEvent.$inferSelect;
 export type NewUserEvent = typeof userEvent.$inferInsert;
+
+// ─── Backlinks ───────────────────────────────────────────────────────────────
+// Backlink library (public "plaza" entries + users' private ones), each
+// user's personal library, the websites being promoted, one submission
+// record per website × target, and user feedback logs. Agents (Codex /
+// Claude Code) lease records through /api/v1/backlink-tasks/*.
+
+export const backlink = table(
+  'backlink',
+  {
+    id: text('id').primaryKey(),
+    // null = public plaza entry; set = private entry of that user.
+    ownerUserId: text('owner_user_id').references(() => user.id, {
+      onDelete: 'cascade',
+    }),
+    visibility: text('visibility').notNull().default('public'), // public | private
+    name: text('name').notNull(),
+    link: text('link').notNull(), // submission URL
+    domain: text('domain').notNull(),
+    tags: text('tags').notNull().default('[]'), // JSON string[]
+    category: text('category').notNull().default('other'),
+    costType: text('cost_type').notNull().default('unknown'),
+    linkType: text('link_type').notNull().default('unknown'),
+    language: text('language').notNull().default(''),
+    details: text('details').notNull().default(''),
+    tips: text('tips').notNull().default(''),
+    dr: real('dr'),
+    organicTraffic: integer('organic_traffic'),
+    status: text('status').notNull().default('approved'),
+    quality: text('quality').notNull().default('unrated'),
+    confidence: text('confidence').notNull().default('unknown'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index('idx_backlink_visibility_category').on(t.visibility, t.category),
+    index('idx_backlink_owner').on(t.ownerUserId),
+    index('idx_backlink_link').on(t.link),
+  ]
+);
+
+export const userBacklink = table(
+  'user_backlink',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    backlinkId: text('backlink_id')
+      .notNull()
+      .references(() => backlink.id, { onDelete: 'cascade' }),
+    source: text('source').notNull().default('favorite'), // favorite | own
+    quality: text('quality').notNull().default('unrated'),
+    notes: text('notes').notNull().default(''),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_user_backlink').on(t.userId, t.backlinkId),
+    index('idx_user_backlink_backlink').on(t.backlinkId),
+  ]
+);
+
+export const website = table(
+  'website',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('enabled'), // enabled | disabled
+    name: text('name').notNull(),
+    url: text('url').notNull(),
+    internalNote: text('internal_note').notNull().default(''),
+    email: text('email').notNull().default(''),
+    launchDate: text('launch_date').notNull().default(''),
+    iconUrl: text('icon_url').notNull().default(''),
+    screenshotUrls: text('screenshot_urls').notNull().default('[]'),
+    shortDesc: text('short_desc').notNull().default(''),
+    longDesc: text('long_desc').notNull().default(''),
+    tagline: text('tagline').notNull().default(''),
+    slogan: text('slogan').notNull().default(''),
+    categories: text('categories').notNull().default('[]'),
+    tags: text('tags').notNull().default('[]'),
+    priceModel: text('price_model').notNull().default(''),
+    lowestPrice: text('lowest_price').notNull().default(''),
+    links: text('links').notNull().default('[]'), // [{ name, url }] anchors
+    backlinkManagementUrl: text('backlink_management_url')
+      .notNull()
+      .default(''),
+    emailManagementUrl: text('email_management_url').notNull().default(''),
+    autoBacklinkEnabled: integer('auto_backlink_enabled', { mode: 'boolean' })
+      .notNull()
+      .default(true),
+    agentSubmissionNote: text('agent_submission_note').notNull().default(''),
+    ownerAvatarUrl: text('owner_avatar_url').notNull().default(''),
+    ownerFirstName: text('owner_first_name').notNull().default(''),
+    ownerLastName: text('owner_last_name').notNull().default(''),
+    ownerEmail: text('owner_email').notNull().default(''),
+    ownerTwitter: text('owner_twitter').notNull().default(''),
+    socialLinks: text('social_links').notNull().default('{}'),
+    location: text('location').notNull().default('{}'),
+    metadata: text('metadata').notNull().default('[]'), // [{ key, value }]
+    lastClaimedAt: integer('last_claimed_at', { mode: 'timestamp_ms' }),
+    // Soft delete: hidden everywhere and skipped by agents until restored.
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [index('idx_website_user').on(t.userId)]
+);
+
+export const websiteBacklink = table(
+  'website_backlink',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    websiteId: text('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' }),
+    // null = manual record (never leased to an agent).
+    backlinkId: text('backlink_id').references(() => backlink.id, {
+      onDelete: 'set null',
+    }),
+    sourceDomain: text('source_domain').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    targetDomain: text('target_domain').notNull(),
+    targetUrl: text('target_url').notNull(),
+    description: text('description').notNull().default(''),
+    userNotes: text('user_notes').notNull().default(''),
+    operationStatus: text('operation_status').notNull().default('pending'),
+    linkStatus: text('link_status').notNull().default('unknown'),
+    resultUrl: text('result_url'),
+    proof: text('proof'),
+    needsUser: text('needs_user'),
+    claimedBy: text('claimed_by'),
+    leaseId: text('lease_id'),
+    leaseExpiresAt: integer('lease_expires_at', { mode: 'timestamp_ms' }),
+    submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_website_backlink_target').on(t.websiteId, t.targetUrl),
+    index('idx_website_backlink_user_status').on(t.userId, t.operationStatus),
+    index('idx_website_backlink_website_status').on(
+      t.websiteId,
+      t.operationStatus
+    ),
+    index('idx_website_backlink_lease').on(t.claimedBy, t.leaseId),
+  ]
+);
+
+export const backlinkLog = table(
+  'backlink_log',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    backlinkId: text('backlink_id')
+      .notNull()
+      .references(() => backlink.id, { onDelete: 'cascade' }),
+    websiteId: text('website_id').references(() => website.id, {
+      onDelete: 'set null',
+    }),
+    action: text('action').notNull().default('comment'), // comment | up | down
+    notes: text('notes').notNull().default(''),
+    status: text('status').notNull().default('active'),
+    visibility: text('visibility').notNull().default('private'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+  },
+  (t) => [index('idx_backlink_log_user').on(t.userId, t.createdAt)]
+);
+
+export type Backlink = typeof backlink.$inferSelect;
+export type NewBacklink = typeof backlink.$inferInsert;
+export type UserBacklink = typeof userBacklink.$inferSelect;
+export type Website = typeof website.$inferSelect;
+export type NewWebsite = typeof website.$inferInsert;
+export type WebsiteBacklink = typeof websiteBacklink.$inferSelect;
+export type NewWebsiteBacklink = typeof websiteBacklink.$inferInsert;
+export type BacklinkLog = typeof backlinkLog.$inferSelect;

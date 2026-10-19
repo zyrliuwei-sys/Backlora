@@ -75,7 +75,7 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
               image={user.image}
             />
           ) : (
-            <Link href="/settings" className={cn(buttonVariants(), 'gap-1.5')}>
+            <Link href="/dashboard" className={cn(buttonVariants(), 'gap-1.5')}>
               {m['common.nav.get_started']()}
               <ArrowRight className="size-4" />
             </Link>
@@ -134,7 +134,7 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
               />
             ) : (
               <Link
-                href="/settings"
+                href="/dashboard"
                 className={cn(buttonVariants(), 'gap-1.5')}
                 onClick={() => setMobileOpen(false)}
               >

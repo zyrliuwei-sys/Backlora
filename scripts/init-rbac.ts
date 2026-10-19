@@ -101,6 +101,16 @@ const defaultPermissions = [
     description: 'Delete posts',
   },
 
+  // Backlink plaza (外链广场): adding, editing and deleting public entries
+  // every user sees. Users manage their own library without it.
+  {
+    code: 'admin.backlinks.write',
+    resource: 'backlinks',
+    action: 'write',
+    title: 'Manage Backlink Plaza',
+    description: 'Create, import, edit and delete public backlink entries',
+  },
+
   // Guest posts (paid submissions). Review approves (publishes), asks for
   // changes, edits or unpublishes. Reject refunds the payment, so it has its
   // own code and is never granted through a wildcard.
@@ -352,6 +362,7 @@ const defaultRoles = [
       'admin.access',
       'admin.users.*',
       'admin.posts.*',
+      'admin.backlinks.write',
       // Explicit: guest-posts.reject refunds, like payments.refund.
       'admin.guest-posts.read',
       'admin.guest-posts.review',

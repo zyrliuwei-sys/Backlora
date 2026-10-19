@@ -66,7 +66,7 @@ function SignUpPage() {
   const afterLoginUrl = resolveAfterAuthUrl({
     redirect: redirectParam,
     callbackUrl,
-    fallback: '/settings',
+    fallback: '/dashboard',
   });
 
   // Carry callbackUrl/redirect across to sign-in so the destination survives the switch.

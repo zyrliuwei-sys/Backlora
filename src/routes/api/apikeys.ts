@@ -90,8 +90,39 @@ async function DELETE({ request }: { request: Request }) {
   }
 }
 
+/** Body: `{ id, status: 'active' | 'disabled' }` (启用 / 停用). */
+async function PATCH({ request }: { request: Request }) {
+  try {
+    if (!(await userFeatureEnabled('apikeys_enabled')))
+      return respErr('API keys are disabled');
+    const auth = getAuth();
+    const session = await auth.api.getSession({ headers: request.headers });
+
+    if (!session?.user) {
+      return respErr('Unauthorized');
+    }
+
+    const body = await request.json().catch(() => ({}));
+    if (typeof body.id !== 'string' || !body.id) {
+      return respErr('Key ID is required');
+    }
+    if (body.status !== 'active' && body.status !== 'disabled') {
+      return respErr('Invalid status');
+    }
+
+    await apikeys.setStatus({
+      userId: session.user.id,
+      keyId: body.id,
+      status: body.status,
+    });
+    return respOk();
+  } catch (error: any) {
+    return respErr(error.message || 'Failed to update API key');
+  }
+}
+
 export const Route = createFileRoute('/api/apikeys')({
   server: {
-    handlers: { GET, POST, DELETE },
+    handlers: { GET, POST, PATCH, DELETE },
   },
 });

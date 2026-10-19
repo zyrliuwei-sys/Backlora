@@ -27,7 +27,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
     headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      // FormData sets its own multipart boundary.
+      ...(init?.body && !(init.body instanceof FormData)
+        ? { 'Content-Type': 'application/json' }
+        : {}),
       ...init?.headers,
     },
   });
@@ -62,6 +65,9 @@ export const apiPatch = <T = void>(url: string, body?: unknown) =>
 
 export const apiDelete = <T = void>(url: string) =>
   request<T>(url, { method: 'DELETE' });
+
+export const apiUpload = <T = void>(url: string, form: FormData) =>
+  request<T>(url, { method: 'POST', body: form });
 
 // Query-string builder for paginated list endpoints.
 export function pageQuery(base: string, p: PageParams) {

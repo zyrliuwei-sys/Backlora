@@ -1,5 +1,14 @@
 import * as crypto from 'crypto';
-import { and, count, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  isNull,
+  like,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import { db } from '@/core/db';
 import { apikey } from '@/config/db/schema';
@@ -68,7 +77,7 @@ export async function list(
   const conditions: SQL[] = [
     eq(apikey.userId, userId),
     eq(apikey.type, 'user'),
-    eq(apikey.status, 'active'),
+    inArray(apikey.status, ['active', 'disabled']),
     isNull(apikey.deletedAt) as unknown as SQL,
   ];
   if (search) {
@@ -107,6 +116,28 @@ export async function list(
   );
 
   return { items: decrypted, total: totalResult.count };
+}
+
+/**
+ * Pause or resume a key (停用 / 启用). A disabled key fails validation.
+ */
+export async function setStatus(params: {
+  userId: string;
+  keyId: string;
+  status: 'active' | 'disabled';
+}) {
+  const { userId, keyId, status } = params;
+  await db()
+    .update(apikey)
+    .set({ status })
+    .where(
+      and(
+        eq(apikey.id, keyId),
+        eq(apikey.userId, userId),
+        eq(apikey.type, 'user'),
+        isNull(apikey.deletedAt)
+      )
+    );
 }
 
 /**

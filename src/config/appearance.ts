@@ -104,7 +104,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   theme: 'classic',
   font: 'inter',
   fontSize: 'md',
-  sidebarVariant: 'inset',
+  sidebarVariant: 'floating',
   sidebarCollapsible: 'offcanvas',
 };
 

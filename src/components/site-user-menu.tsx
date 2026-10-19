@@ -65,7 +65,7 @@ export function SiteUserMenu({
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem render={<Link href="/settings" />}>
+        <DropdownMenuItem render={<Link href="/dashboard" />}>
           <SettingsIcon className="size-4" />
           {m['common.nav.settings']()}
         </DropdownMenuItem>

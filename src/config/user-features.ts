@@ -5,13 +5,13 @@
  * the setting has never been saved.
  */
 export const USER_FEATURES = {
-  credits_enabled: true,
-  billing_enabled: true,
-  payments_enabled: true,
-  /** API Keys page. Off until the project actually offers an API. */
-  apikeys_enabled: false,
+  credits_enabled: false,
+  billing_enabled: false,
+  payments_enabled: false,
+  /** API Keys page. On: agents authenticate /api/agent/* with these keys. */
+  apikeys_enabled: true,
   /** Support tickets: the page and the floating support button. */
-  tickets_enabled: true,
+  tickets_enabled: false,
 } as const;
 
 export type UserFeature = keyof typeof USER_FEATURES;
