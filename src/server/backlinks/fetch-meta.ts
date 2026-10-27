@@ -38,6 +38,44 @@ function decode(s: string): string {
     .replace(/&gt;/g, '>');
 }
 
+const SOCIAL_HOSTS: Record<string, RegExp> = {
+  facebook: /^(www\.)?facebook\.com$/,
+  twitter: /^(www\.)?(twitter|x)\.com$/,
+  linkedin: /^(www\.)?linkedin\.com$/,
+  instagram: /^(www\.)?instagram\.com$/,
+  youtube: /^(www\.)?youtube\.com$/,
+  github: /^(www\.)?github\.com$/,
+};
+
+/** First profile link per network, from page anchors and JSON-LD sameAs. */
+function socialLinks(html: string, base: string): Record<string, string> {
+  const found: Record<string, string> = {};
+  const hrefs = [
+    ...[...html.matchAll(/<a[^>]+href=["']([^"']+)["']/gi)].map((m) => m[1]),
+    ...[...html.matchAll(/"sameAs"\s*:\s*\[([^\]]*)\]/gi)].flatMap((m) =>
+      [...m[1].matchAll(/"([^"]+)"/g)].map((s) => s[1])
+    ),
+  ];
+  for (const href of hrefs) {
+    const abs = absolute(decode(href), base);
+    if (!abs) continue;
+    const u = new URL(abs);
+    // A bare network home or a share/intent link is not a profile.
+    if (u.pathname.length < 2 || /share|intent|sharer/i.test(abs)) continue;
+    for (const [k, re] of Object.entries(SOCIAL_HOSTS))
+      if (!found[k] && re.test(u.hostname)) found[k] = abs;
+  }
+  return found;
+}
+
+/** A public contact email: mailto links first, then JSON-LD. */
+function contactEmail(html: string): string {
+  const m =
+    html.match(/href=["']mailto:([^"'?]+)/i) ||
+    html.match(/"email"\s*:\s*"(?:mailto:)?([^"]+@[^"]+)"/i);
+  return m ? decode(m[1]).trim().slice(0, 200) : '';
+}
+
 function absolute(href: string, base: string): string {
   if (!href) return '';
   try {
@@ -99,5 +137,12 @@ export async function fetchSiteMeta(input: string) {
     iconUrl: absolute(icon, base),
     screenshotUrl: absolute(meta(html, 'og:image'), base),
     twitter: meta(html, 'twitter:site') || meta(html, 'twitter:creator'),
+    email: contactEmail(html),
+    keywords: meta(html, 'keywords')
+      .split(',')
+      .map((k) => k.trim().slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 5),
+    socialLinks: socialLinks(html, base),
   };
 }

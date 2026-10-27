@@ -841,6 +841,9 @@ export type SiteMeta = {
   iconUrl: string;
   screenshotUrl: string;
   twitter: string;
+  email: string;
+  keywords: string[];
+  socialLinks: Record<string, string>;
 };
 
 /** Fill only what's still empty — never overwrite the user's text. */
@@ -848,6 +851,8 @@ export function mergeMeta(form: WebsiteForm, meta: SiteMeta): WebsiteForm {
   return {
     ...form,
     name: form.name || meta.name,
+    email: form.email || meta.email,
+    tags: form.tags.length ? form.tags : meta.keywords,
     tagline: form.tagline || meta.tagline,
     shortDesc: form.shortDesc || meta.shortDesc,
     iconUrl: form.iconUrl || meta.iconUrl,
@@ -857,6 +862,9 @@ export function mergeMeta(form: WebsiteForm, meta: SiteMeta): WebsiteForm {
         ? [meta.screenshotUrl]
         : [],
     socialLinks: {
+      ...Object.fromEntries(
+        Object.entries(meta.socialLinks).filter(([k]) => !form.socialLinks[k])
+      ),
       ...form.socialLinks,
       twitter:
         form.socialLinks.twitter ||

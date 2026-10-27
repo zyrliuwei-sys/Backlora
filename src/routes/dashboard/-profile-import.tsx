@@ -434,7 +434,7 @@ export function ProfileImportDialog({
                     {m['dash.import.copy_prompt']()}
                   </Button>
                   <a
-                    href="https://chatgpt.com/"
+                    href={`https://chatgpt.com/?q=${encodeURIComponent(importPrompt(url))}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary inline-flex items-center text-sm hover:underline"
