@@ -2,7 +2,12 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
+import {
+  baseLocale,
+  getLocale,
+  locales,
+  localizeUrl,
+} from '@/paraglide/runtime.js';
 import { Blog } from '@/blocks/blog';
 import { CTA } from '@/blocks/cta';
 import { FAQ } from '@/blocks/faq';
@@ -46,7 +51,7 @@ export const Route = createFileRoute('/')({
     return { locale, posts };
   },
   head: ({ loaderData }) => {
-    const locale = loaderData?.locale ?? 'en';
+    const locale = loaderData?.locale ?? baseLocale;
     const urlFor = (loc: string) =>
       localizeUrl(`${envConfigs.app_url}/`, { locale: loc as any }).href;
     return {
@@ -63,7 +68,7 @@ export const Route = createFileRoute('/')({
           hrefLang: loc,
           href: urlFor(loc),
         })),
-        { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
+        { rel: 'alternate', hrefLang: 'x-default', href: urlFor(baseLocale) },
       ],
     };
   },
