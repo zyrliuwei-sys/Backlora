@@ -1,5 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { APIError } from 'better-auth/api';
 import { oneTap } from 'better-auth/plugins';
 
 import { db } from '@/core/db';
@@ -312,6 +313,15 @@ export function getAuth(configs?: Record<string, string>) {
       user: {
         create: {
           before: async (userData: any, ctx: any) => {
+            // AUTH_SIGNUP_DISABLED=true closes sign-up (email and OAuth);
+            // existing accounts still sign in. Read per request so a
+            // wrangler var change applies without a rebuild.
+            if (process.env.AUTH_SIGNUP_DISABLED === 'true') {
+              throw new APIError('FORBIDDEN', {
+                message: 'Sign-up is closed',
+              });
+            }
+
             const utm = (name: string) => {
               let value = getCookieFromCtx(ctx, name) || '';
               try {
