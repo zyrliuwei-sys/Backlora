@@ -362,7 +362,7 @@ function QuickOpenPage() {
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={m['dash.quick.url_placeholder']()}
-              className="font-mono text-xs"
+              className="field-sizing-fixed h-56 font-mono text-xs"
             />
             <p className="text-muted-foreground text-sm">
               {m['dash.quick.counts']({

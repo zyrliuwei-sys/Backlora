@@ -421,7 +421,7 @@ DeckCraft,https://example-directory.com/submit,submitted,unknown,,`}</pre>
           rows={10}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="font-mono text-xs"
+          className="field-sizing-fixed h-64 font-mono text-xs"
         />
         <input
           ref={fileRef}

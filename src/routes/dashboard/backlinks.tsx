@@ -131,7 +131,7 @@ SaaSHub,https://www.saashub.com/submit,directory,saas,freemium,dofollow,72,,en,v
           rows={10}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="font-mono text-xs"
+          className="field-sizing-fixed h-64 font-mono text-xs"
           placeholder={m['dash.plaza.import_placeholder']()}
         />
         <input

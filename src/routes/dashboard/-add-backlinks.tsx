@@ -389,7 +389,7 @@ export function AddBacklinksPanel({
 
   const ready = body();
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(String(v))}
@@ -432,7 +432,7 @@ export function AddBacklinksPanel({
             value={urls}
             onChange={(e) => setUrls(e.target.value)}
             placeholder={m['dash.add.urls_placeholder']()}
-            className="font-mono text-xs"
+            className="field-sizing-fixed h-64 font-mono text-xs"
           />
           <p className="text-muted-foreground text-xs">
             {m['dash.add.urls_hint']()}

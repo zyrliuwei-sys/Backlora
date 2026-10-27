@@ -641,7 +641,12 @@ export async function ensureEntriesForUrls(
 ): Promise<{ ids: string[]; invalid: number }> {
   const normalized = new Set<string>();
   let invalid = 0;
-  for (const u of urls.slice(0, MAX_ADD_BATCH)) {
+  const lines = urls.slice(0, MAX_ADD_BATCH).map((u) => u.trim());
+  const hasScheme = (u: string | undefined) => !!u && /^https?:\/\//i.test(u);
+  for (const [i, u] of lines.entries()) {
+    // Lists often pair a label line (`example.com`) with the submission URL
+    // below it; the label is not a page to submit to.
+    if (u && !hasScheme(u) && hasScheme(lines[i + 1])) continue;
     const n = normalizeUrl(u);
     if (n) normalized.add(n);
     else if (u.trim()) invalid++;
