@@ -348,7 +348,9 @@ export function WebsiteFields({
       ownerFirstName: first,
       ownerLastName: last,
       ownerEmail: `${first}.${last}@example.com`.toLowerCase(),
-      ownerAvatarUrl: `https://api.dicebear.com/9.x/notionists/svg?seed=${first}${last}`,
+      // Colored cartoon on a pastel background; PNG because many target
+      // sites refuse SVG uploads.
+      ownerAvatarUrl: `https://api.dicebear.com/9.x/adventurer/png?seed=${first}${last}&size=256&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`,
     });
   };
   const randomAddress = () => {
