@@ -80,30 +80,13 @@ export default defineConfig({
       outputStructure: 'message-modules',
       cookieName: 'PARAGLIDE_LOCALE',
       strategy: ['url', 'cookie', 'baseLocale'],
+      // English is hidden for now: zh is the only locale, served unprefixed.
+      // To bring en back, restore `locales`/`baseLocale` in
+      // project.inlang/settings.json and the en/zh patterns from git history.
       urlPatterns: [
-        // API endpoints are never locale-prefixed.
-        {
-          pattern: '/api/:path(.*)?',
-          localized: [
-            ['en', '/api/:path(.*)?'],
-            ['zh', '/api/:path(.*)?'],
-          ],
-        },
-        // Bare locale homes match without a trailing-slash redirect.
-        {
-          pattern: '/',
-          localized: [
-            ['zh', '/zh'],
-            ['en', '/'],
-          ],
-        },
-        // "as-needed" prefix: zh under /zh, en (default) unprefixed.
         {
           pattern: '/:path(.*)?',
-          localized: [
-            ['zh', '/zh/:path(.*)?'],
-            ['en', '/:path(.*)?'],
-          ],
+          localized: [['zh', '/:path(.*)?']],
         },
       ],
     }),

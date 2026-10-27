@@ -103,6 +103,13 @@ export default {
 };
 
 async function handleRequest(req: Request): Promise<Response> {
+  // English is hidden and zh is unprefixed: send old /zh links to the same
+  // page without the prefix.
+  const url = new URL(req.url);
+  if (url.pathname === '/zh' || url.pathname.startsWith('/zh/')) {
+    url.pathname = url.pathname.slice(3) || '/';
+    return Response.redirect(url.toString(), 302);
+  }
   const response = withPoweredBy(
     await paraglideMiddleware(req, () => handler.fetch(req))
   );

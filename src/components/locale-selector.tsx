@@ -24,6 +24,9 @@ export function LocaleSelector({
     setLocale(newLocale as typeof locale);
   }
 
+  // Nothing to switch between while only one locale is enabled.
+  if (locales.length < 2) return null;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

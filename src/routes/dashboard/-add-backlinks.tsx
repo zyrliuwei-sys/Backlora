@@ -37,6 +37,7 @@ import {
 } from './-shared';
 
 type SetSpec =
+  | { kind: 'all' }
   | { kind: 'recommended' }
   | { kind: 'category'; value: string }
   | { kind: 'tag'; value: string };
@@ -48,7 +49,9 @@ type Target =
 type AddResult = { added: number; skipped?: number; invalid?: number };
 
 function setKey(s: SetSpec) {
-  return s.kind === 'recommended' ? 'recommended' : `${s.kind}:${s.value}`;
+  return s.kind === 'all' || s.kind === 'recommended'
+    ? s.kind
+    : `${s.kind}:${s.value}`;
 }
 
 function SetOption({
@@ -94,15 +97,20 @@ function SetOption({
   );
 }
 
-/** 推荐外链套餐: recommended, by category, by tag, or a custom tag. */
+/**
+ * 推荐外链套餐: recommended, by category, by tag, or a custom tag. Drawn from
+ * the plaza, or from the user's own library when adding to a website.
+ */
 function SetsTab({
+  scope,
   selected,
   onSelect,
 }: {
+  scope: 'plaza' | 'personal';
   selected: SetSpec | null;
   onSelect: (s: SetSpec) => void;
 }) {
-  const facets = useFacets('plaza');
+  const facets = useFacets(scope);
   const [customTag, setCustomTag] = useState('');
   const key = selected ? setKey(selected) : '';
   const f = facets.data;
@@ -130,11 +138,24 @@ function SetsTab({
         <div className="text-muted-foreground text-xs">
           {m['dash.add.recommended']()}
         </div>
+        {scope === 'personal' && (
+          <SetOption
+            checked={key === 'all'}
+            onSelect={() => onSelect({ kind: 'all' })}
+            label={m['dash.add.all_personal']()}
+            hint={m['dash.add.all_personal_hint']()}
+            count={f?.total}
+          />
+        )}
         <SetOption
           checked={key === 'recommended'}
           onSelect={() => onSelect({ kind: 'recommended' })}
           label={m['dash.add.recommended']()}
-          hint={m['dash.add.recommended_hint']()}
+          hint={
+            scope === 'personal'
+              ? m['dash.add.recommended_personal_hint']()
+              : m['dash.add.recommended_hint']()
+          }
           count={f?.recommended}
         />
       </div>
@@ -344,9 +365,12 @@ export function AddBacklinksPanel({
   const [personalIds, setPersonalIds] = useState<Set<string>>(new Set());
   const [urls, setUrls] = useState('');
   const isWebsite = target.kind === 'website';
+  // Websites draw sets from the user's own library; the library import
+  // draws them from the plaza.
+  const setScope = isWebsite ? 'personal' : 'plaza';
 
   const body = (): object | null => {
-    if (tab === 'sets') return set ? { scope: 'plaza', set } : null;
+    if (tab === 'sets') return set ? { scope: setScope, set } : null;
     if (tab === 'plaza') return plazaIds.size ? { ids: [...plazaIds] } : null;
     if (tab === 'personal')
       return personalIds.size ? { ids: [...personalIds] } : null;
@@ -412,7 +436,7 @@ export function AddBacklinksPanel({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="sets" className="pt-3">
-          <SetsTab selected={set} onSelect={setSet} />
+          <SetsTab scope={setScope} selected={set} onSelect={setSet} />
         </TabsContent>
         <TabsContent value="plaza" className="pt-3">
           <PickTab scope="plaza" selected={plazaIds} onChange={setPlazaIds} />

@@ -292,6 +292,7 @@ export async function allPlaza(): Promise<BacklinkView[]> {
 
 export type LibraryScope = 'plaza' | 'personal';
 export type SetSpec =
+  | { kind: 'all' }
   | { kind: 'recommended' }
   | { kind: 'category'; value: string }
   | { kind: 'tag'; value: string };
@@ -304,6 +305,7 @@ const recommendedSql = and(
 )!;
 
 function setCondition(set: SetSpec): SQL {
+  if (set.kind === 'all') return sql`1 = 1`;
   if (set.kind === 'recommended') return recommendedSql;
   if (set.kind === 'category') {
     if (!oneOf(set.value, BACKLINK_CATEGORIES))
