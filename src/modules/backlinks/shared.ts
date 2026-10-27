@@ -1,3 +1,5 @@
+import { atomic } from '@/core/db/atomic';
+
 /** Thrown for anything the caller did wrong; routes turn it into respErr. */
 export class BacklinkError extends Error {
   constructor(
@@ -16,6 +18,18 @@ export function chunk<T>(items: T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size)
     out.push(items.slice(i, i + size));
   return out;
+}
+
+// Statements per round trip: one D1 batch instead of one call each.
+const STATEMENTS_PER_BATCH = 50;
+
+/** Run independent writes (built from `q`) in batched round trips. */
+export async function writeBatched<T>(
+  items: T[],
+  build: (q: any, item: T) => Record<string, any>
+) {
+  for (const part of chunk(items, STATEMENTS_PER_BATCH))
+    await atomic((q) => part.map((item) => build(q, item)));
 }
 
 export function str(v: unknown, max: number): string {

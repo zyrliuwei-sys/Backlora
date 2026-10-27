@@ -43,6 +43,7 @@ import {
   parseJson,
   str,
   stringList,
+  writeBatched,
 } from './shared';
 
 export type BacklinkView = Omit<Backlink, 'tags'> & { tags: string[] };
@@ -480,49 +481,55 @@ export async function listMine(
 /** Add public entries to the user's library (already-saved ones are kept). */
 export async function addToMine(userId: string, backlinkIds: string[]) {
   const ids = [...new Set(backlinkIds)].slice(0, MAX_ADD_BATCH);
-  let added = 0;
-  for (const part of chunk(ids, IN_CHUNK)) {
-    const visible: { id: string }[] = await db()
-      .select({ id: backlink.id })
-      .from(backlink)
-      .where(
-        and(
-          inArray(backlink.id, part),
-          or(publicOnly, eq(backlink.ownerUserId, userId))
-        )
-      );
-    const saved = new Set(
-      (
-        (await db()
-          .select({ id: userBacklink.backlinkId })
-          .from(userBacklink)
-          .where(
-            and(
-              eq(userBacklink.userId, userId),
-              inArray(userBacklink.backlinkId, part)
-            )
-          )) as { id: string }[]
-      ).map((r) => r.id)
-    );
-    const fresh = visible.filter((v) => !saved.has(v.id));
-    // 7 bound params per row (column defaults are bound too) → 14 rows keeps
-    // under D1's 100.
-    for (const rows of chunk(fresh, 14)) {
-      await db()
-        .insert(userBacklink)
-        .values(
-          rows.map((r) => ({
-            id: getUuid(),
-            userId,
-            backlinkId: r.id,
-            source: 'favorite',
-          }))
-        )
-        .onConflictDoNothing();
-    }
-    added += fresh.length;
-  }
-  return { added };
+  const parts = chunk(ids, IN_CHUNK);
+  const [visible, saved] = await Promise.all([
+    Promise.all(
+      parts.map(
+        (part) =>
+          db()
+            .select({ id: backlink.id })
+            .from(backlink)
+            .where(
+              and(
+                inArray(backlink.id, part),
+                or(publicOnly, eq(backlink.ownerUserId, userId))
+              )
+            ) as Promise<{ id: string }[]>
+      )
+    ),
+    Promise.all(
+      parts.map(
+        (part) =>
+          db()
+            .select({ id: userBacklink.backlinkId })
+            .from(userBacklink)
+            .where(
+              and(
+                eq(userBacklink.userId, userId),
+                inArray(userBacklink.backlinkId, part)
+              )
+            ) as Promise<{ id: string }[]>
+      )
+    ),
+  ]);
+  const savedIds = new Set(saved.flat().map((r) => r.id));
+  const fresh = visible.flat().filter((v) => !savedIds.has(v.id));
+  // 7 bound params per row (column defaults are bound too) → 14 rows keeps
+  // under D1's 100.
+  await writeBatched(chunk(fresh, 14), (q, rows) =>
+    q
+      .insert(userBacklink)
+      .values(
+        rows.map((r) => ({
+          id: getUuid(),
+          userId,
+          backlinkId: r.id,
+          source: 'favorite',
+        }))
+      )
+      .onConflictDoNothing()
+  );
+  return { added: fresh.length };
 }
 
 /** Toggle a plaza entry in/out of the user's library. */

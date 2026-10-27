@@ -41,7 +41,14 @@ import {
   type LibraryScope,
   type SetSpec,
 } from './library';
-import { BacklinkError, chunk, IN_CHUNK, str, strOrNull } from './shared';
+import {
+  BacklinkError,
+  chunk,
+  IN_CHUNK,
+  str,
+  strOrNull,
+  writeBatched,
+} from './shared';
 import { requireWebsite, websiteOptions } from './websites';
 
 export type RecordFilter = {
@@ -156,39 +163,48 @@ export async function addRecordsForBacklinks(
   const w = await requireWebsite(userId, websiteId);
   const ids = [...new Set(backlinkIds)].slice(0, MAX_ADD_BATCH);
 
-  const entries: { id: string; link: string }[] = [];
-  for (const part of chunk(ids, IN_CHUNK)) {
-    entries.push(
-      ...((await db()
-        .select({ id: backlink.id, link: backlink.link })
-        .from(backlink)
-        .where(
-          and(
-            inArray(backlink.id, part),
-            or(
-              eq(backlink.visibility, 'public'),
-              eq(backlink.ownerUserId, userId)
-            )
-          )
-        )) as { id: string; link: string }[])
-    );
-  }
-  const existing = new Set<string>();
-  for (const part of chunk(
-    entries.map((e) => e.link),
-    IN_CHUNK
-  )) {
-    const rows: { targetUrl: string }[] = await db()
-      .select({ targetUrl: websiteBacklink.targetUrl })
-      .from(websiteBacklink)
-      .where(
-        and(
-          eq(websiteBacklink.websiteId, websiteId),
-          inArray(websiteBacklink.targetUrl, part)
+  const entries = (
+    await Promise.all(
+      chunk(ids, IN_CHUNK).map(
+        (part) =>
+          db()
+            .select({ id: backlink.id, link: backlink.link })
+            .from(backlink)
+            .where(
+              and(
+                inArray(backlink.id, part),
+                or(
+                  eq(backlink.visibility, 'public'),
+                  eq(backlink.ownerUserId, userId)
+                )
+              )
+            ) as Promise<{ id: string; link: string }[]>
+      )
+    )
+  ).flat();
+  const existing = new Set(
+    (
+      await Promise.all(
+        chunk(
+          entries.map((e) => e.link),
+          IN_CHUNK
+        ).map(
+          (part) =>
+            db()
+              .select({ targetUrl: websiteBacklink.targetUrl })
+              .from(websiteBacklink)
+              .where(
+                and(
+                  eq(websiteBacklink.websiteId, websiteId),
+                  inArray(websiteBacklink.targetUrl, part)
+                )
+              ) as Promise<{ targetUrl: string }[]>
         )
-      );
-    for (const r of rows) existing.add(r.targetUrl);
-  }
+      )
+    )
+      .flat()
+      .map((r) => r.targetUrl)
+  );
   const seen = new Set<string>();
   const fresh = entries.filter((e) => {
     if (existing.has(e.link) || seen.has(e.link)) return false;
@@ -198,8 +214,8 @@ export async function addRecordsForBacklinks(
   const sourceDomain = domainOf(w.url);
   // 13 bound params per row (column defaults are bound too) → 7 rows keeps
   // under D1's 100.
-  for (const part of chunk(fresh, 7)) {
-    await db()
+  await writeBatched(chunk(fresh, 7), (q, part) =>
+    q
       .insert(websiteBacklink)
       .values(
         part.map((e) => ({
@@ -214,8 +230,8 @@ export async function addRecordsForBacklinks(
           operationStatus: 'pending',
         }))
       )
-      .onConflictDoNothing();
-  }
+      .onConflictDoNothing()
+  );
   return { added: fresh.length, skipped: ids.length - fresh.length };
 }
 
