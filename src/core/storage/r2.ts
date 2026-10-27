@@ -30,7 +30,14 @@ export class R2Provider implements StorageProvider {
   configs: R2Configs;
 
   constructor(configs: R2Configs) {
-    this.configs = configs;
+    // A domain saved without a scheme ("cdn.example.com") would make
+    // relative links that resolve against the app's own host.
+    const domain = configs.publicDomain?.trim().replace(/\/+$/, '');
+    this.configs = {
+      ...configs,
+      publicDomain:
+        domain && !/^https?:\/\//i.test(domain) ? `https://${domain}` : domain,
+    };
   }
 
   private getUploadPath() {
