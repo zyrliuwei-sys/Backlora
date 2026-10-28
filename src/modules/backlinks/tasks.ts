@@ -200,6 +200,8 @@ async function claimExisting(
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
           notBlockedElsewhere(userId, w.id, sql`${websiteBacklink.targetUrl}`),
+          // Turned off in the user's library: stop working it everywhere.
+          sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${websiteBacklink.backlinkId} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`,
           ...sourceConditions(userId, source),
           // Records added by hand have no library entry, so nothing is known
           // about their category or cost: only all_eligible without a
