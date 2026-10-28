@@ -38,7 +38,7 @@ import {
 } from '@/config/db/schema';
 import { getUuid } from '@/lib/hash';
 
-import { libraryNotes, viewBacklink } from './library';
+import { libraryNotes, markProven, viewBacklink } from './library';
 import { BacklinkError, isHttpUrl, str, strOrNull } from './shared';
 import { agentPassword, productOf, requireWebsite } from './websites';
 
@@ -529,7 +529,10 @@ export async function reportResult(userId: string, id: string, body: any) {
       )
     )
     .returning();
-  if (row) return { id: row.id, status: row.operationStatus };
+  if (row) {
+    if (submittedAt && row.backlinkId) await markProven(userId, row.backlinkId);
+    return { id: row.id, status: row.operationStatus };
+  }
 
   // A retry of the same report after it already went through is fine.
   const current = await recordOf(userId, id);

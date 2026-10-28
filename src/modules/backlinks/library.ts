@@ -5,6 +5,7 @@ import {
   eq,
   inArray,
   like,
+  ne,
   or,
   sql,
   type SQL,
@@ -700,6 +701,28 @@ export async function importToMine(
     return { ...(await addToMine(userId, ids)), invalid };
   }
   throw new BacklinkError('Nothing to import');
+}
+
+/**
+ * A submission went through: the user's own entry is evidently free to submit,
+ * so it joins 推荐. Public entries are left to admins.
+ */
+export async function markProven(userId: string, backlinkId: string) {
+  await db()
+    .update(backlink)
+    .set({
+      status: 'approved',
+      costType: sql`case when ${backlink.costType} = 'unknown' then 'free' else ${backlink.costType} end`,
+      confidence: sql`case when ${backlink.confidence} = 'unknown' then 'observed' else ${backlink.confidence} end`,
+    })
+    .where(
+      and(
+        eq(backlink.id, backlinkId),
+        eq(backlink.ownerUserId, userId),
+        eq(backlink.visibility, 'private'),
+        ne(backlink.status, 'rejected')
+      )
+    );
 }
 
 /** Personal notes for a set of entries (task `library_notes`). */
