@@ -70,6 +70,25 @@ export const PROGRESS_BUCKETS: Record<
   failed: ['blocked', 'skipped'],
 };
 
+/**
+ * Why a task did not go through (needs_user / blocked / skipped), as the agent
+ * reports it. Some reasons also update the user's own library entry.
+ */
+export const FAILURE_REASONS = [
+  'paid', // only a paid plan is available → entry marked paid
+  'captcha', // CAPTCHA / bot check stops automation → entry turned off
+  'forbidden', // the site forbids this kind of submission → entry turned off
+  'reciprocal', // needs a badge or link back first
+  'account', // login, signup, password or account problem
+  'email_verify', // verification email never arrived
+  'missing_info', // product profile lacks something the form needs
+  'queue_full', // free slots or launch queue full
+  'site_down', // dead, parked, WAF, unreachable
+  'no_entry', // no submission form or entry point
+  'other',
+] as const;
+export type FailureReason = (typeof FAILURE_REASONS)[number];
+
 /** Final statuses an agent reports through the result API. */
 export const RESULT_STATUSES = [
   'submitted',

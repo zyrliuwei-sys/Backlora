@@ -963,6 +963,7 @@ export const websiteBacklink = table(
     resultUrl: text('result_url'),
     proof: text('proof'),
     needsUser: text('needs_user'),
+    failureReason: text('failure_reason'),
     claimedBy: text('claimed_by'),
     leaseId: text('lease_id'),
     leaseExpiresAt: integer('lease_expires_at', { mode: 'timestamp_ms' }),

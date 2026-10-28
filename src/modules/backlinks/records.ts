@@ -16,6 +16,7 @@ import {
 import { db } from '@/core/db';
 import {
   domainOf,
+  FAILURE_REASONS,
   LINK_STATUSES,
   MAX_ADD_BATCH,
   normalizeUrl,
@@ -56,6 +57,7 @@ export type RecordFilter = {
   operationStatus?: string;
   progressStatus?: string;
   linkStatus?: string;
+  failureReason?: string;
   search?: string;
   sourceDomain?: string;
   targetDomain?: string;
@@ -87,6 +89,8 @@ function conditions(
     c.push(like(websiteBacklink.targetDomain, `%${f.targetDomain}%`));
   if (oneOf(f.linkStatus, LINK_STATUSES))
     c.push(eq(websiteBacklink.linkStatus, f.linkStatus));
+  if (oneOf(f.failureReason, FAILURE_REASONS))
+    c.push(eq(websiteBacklink.failureReason, f.failureReason));
   if (f.agentOnly) c.push(isNotNull(websiteBacklink.claimedBy));
   if (f.search) {
     const q = `%${f.search}%`;
@@ -297,6 +301,8 @@ function recordFields(body: any) {
  */
 function manualStatusSideEffects(set: Partial<WebsiteBacklink>) {
   if (!set.operationStatus) return set;
+  // The agent's reason described the old status, not the user's choice.
+  set.failureReason = null;
   if (set.operationStatus !== 'in_progress') {
     set.leaseId = null;
     set.leaseExpiresAt = null;

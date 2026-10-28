@@ -1734,5 +1734,18 @@
   "dash.websites.purge": "彻底删除",
   "dash.websites.purge_title": "彻底删除网站？",
   "dash.websites.purge_desc": "“{name}”及其全部提交记录会被永久删除，无法恢复。",
-  "dash.websites.logs": "日志"
+  "dash.websites.logs": "日志",
+  "dash.records.reason": "原因",
+  "dash.records.all_reasons": "全部原因",
+  "dash.reason.paid": "需付费",
+  "dash.reason.captcha": "验证码拦截",
+  "dash.reason.forbidden": "禁止提交",
+  "dash.reason.reciprocal": "需要互链",
+  "dash.reason.account": "账号/登录问题",
+  "dash.reason.email_verify": "收不到验证邮件",
+  "dash.reason.missing_info": "资料缺失",
+  "dash.reason.queue_full": "排期已满",
+  "dash.reason.site_down": "站点失效",
+  "dash.reason.no_entry": "没有提交入口",
+  "dash.reason.other": "其他"
 }

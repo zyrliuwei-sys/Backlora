@@ -125,6 +125,7 @@ export interface WebsiteRecord {
   resultUrl: string | null;
   proof: string | null;
   needsUser: string | null;
+  failureReason: string | null;
   claimedBy: string | null;
   leaseId: string | null;
   leaseExpiresAt: string | null;

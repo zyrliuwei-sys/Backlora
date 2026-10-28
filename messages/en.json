@@ -1734,5 +1734,18 @@
   "dash.websites.purge": "Delete permanently",
   "dash.websites.purge_title": "Delete website permanently?",
   "dash.websites.purge_desc": "“{name}” and all its submission records will be deleted for good. This can't be undone.",
-  "dash.websites.logs": "Logs"
+  "dash.websites.logs": "Logs",
+  "dash.records.reason": "Reason",
+  "dash.records.all_reasons": "All reasons",
+  "dash.reason.paid": "Paid only",
+  "dash.reason.captcha": "CAPTCHA",
+  "dash.reason.forbidden": "Forbidden",
+  "dash.reason.reciprocal": "Needs link back",
+  "dash.reason.account": "Account / login",
+  "dash.reason.email_verify": "No verification email",
+  "dash.reason.missing_info": "Missing info",
+  "dash.reason.queue_full": "Queue full",
+  "dash.reason.site_down": "Site down",
+  "dash.reason.no_entry": "No entry point",
+  "dash.reason.other": "Other"
 }

@@ -22,9 +22,11 @@ import {
 import { toast } from 'sonner';
 
 import {
+  FAILURE_REASONS,
   LINK_STATUSES,
   OPERATION_STATUSES,
   PROGRESS_STATUSES,
+  type FailureReason,
   type LinkStatus,
   type OperationStatus,
   type ProgressStatus,
@@ -89,6 +91,7 @@ type RecordsSearch = {
   operationStatus?: string;
   progressStatus?: ProgressStatus;
   linkStatus?: string;
+  failureReason?: string;
   keyword?: string;
   sourceDomain?: string;
   targetDomain?: string;
@@ -166,6 +169,9 @@ function RecordDetailDialog({
               {r.resultUrl && <ExternalLink href={r.resultUrl} />}
             </Detail>
             <Detail label={m['dash.records.proof']()}>{r.proof}</Detail>
+            <Detail label={m['dash.records.reason']()}>
+              {reasonText(r.failureReason)}
+            </Detail>
             <Detail label={m['dash.records.needs_user']()}>
               {r.needsUser}
             </Detail>
@@ -487,6 +493,24 @@ const progressLabel: Record<ProgressStatus, () => string> = {
   failed: () => m['dash.websites.failed'](),
 };
 
+const reasonLabel: Record<FailureReason, () => string> = {
+  paid: () => m['dash.reason.paid'](),
+  captcha: () => m['dash.reason.captcha'](),
+  forbidden: () => m['dash.reason.forbidden'](),
+  reciprocal: () => m['dash.reason.reciprocal'](),
+  account: () => m['dash.reason.account'](),
+  email_verify: () => m['dash.reason.email_verify'](),
+  missing_info: () => m['dash.reason.missing_info'](),
+  queue_full: () => m['dash.reason.queue_full'](),
+  site_down: () => m['dash.reason.site_down'](),
+  no_entry: () => m['dash.reason.no_entry'](),
+  other: () => m['dash.reason.other'](),
+};
+
+function reasonText(r: string | null) {
+  return r && r in reasonLabel ? reasonLabel[r as FailureReason]() : null;
+}
+
 /** The 操作 select holds an operation status, or `progress:<doing|waiting|done|failed>`. */
 function statusFromSearch(search: RecordsSearch) {
   if (search.progressStatus) return `progress:${search.progressStatus}`;
@@ -502,6 +526,7 @@ function RecordsPage() {
   const [agentOnly, setAgentOnly] = useState(false);
   const [status, setStatus] = useState(statusFromSearch(search));
   const [linkStatus, setLinkStatus] = useState(search.linkStatus ?? 'all');
+  const [reason, setReason] = useState(search.failureReason ?? 'all');
   const [keywordDraft, setKeywordDraft] = useState(search.keyword ?? '');
   const [keyword, setKeyword] = useState(search.keyword ?? '');
   const [sourceDomain, setSourceDomain] = useState(search.sourceDomain ?? '');
@@ -517,6 +542,7 @@ function RecordsPage() {
     setWebsiteId(search.websiteId ?? 'all');
     setStatus(statusFromSearch(search));
     setLinkStatus(search.linkStatus ?? 'all');
+    setReason(search.failureReason ?? 'all');
     setKeyword(search.keyword ?? '');
     setKeywordDraft(search.keyword ?? '');
     setSourceDomain(search.sourceDomain ?? '');
@@ -532,6 +558,7 @@ function RecordsPage() {
     operationStatus: progressStatus ? undefined : status,
     progressStatus,
     linkStatus,
+    failureReason: reason,
     keyword,
     sourceDomain,
     targetDomain,
@@ -710,6 +737,18 @@ function RecordsPage() {
           onChange={resetPage(setLinkStatus)}
           allLabel={m['dash.common.all_statuses']()}
           options={LINK_STATUSES.map((s) => ({ value: s, label: s }))}
+        />
+        <span className="text-sm font-medium">
+          {m['dash.records.reason']()}
+        </span>
+        <FilterSelect
+          value={reason}
+          onChange={resetPage(setReason)}
+          allLabel={m['dash.records.all_reasons']()}
+          options={FAILURE_REASONS.map((r) => ({
+            value: r,
+            label: reasonLabel[r](),
+          }))}
         />
         <form
           className="relative"
@@ -901,6 +940,11 @@ function RecordsPage() {
                     options={OPERATION_STATUSES}
                     onChange={(v) => patch(r.id, { operationStatus: v })}
                   />
+                  {r.failureReason && (
+                    <div className="text-muted-foreground mt-1 text-xs">
+                      {reasonText(r.failureReason)}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <InlineNote record={r} />
@@ -1019,6 +1063,7 @@ export const Route = createFileRoute('/dashboard/website-backlinks')({
       operationStatus: text(s.operationStatus),
       progressStatus: PROGRESS_STATUSES.find((p) => p === progress),
       linkStatus: text(s.linkStatus),
+      failureReason: text(s.failureReason),
       keyword: text(s.keyword) ?? text(s.search),
       sourceDomain: text(s.sourceDomain),
       targetDomain: text(s.targetDomain),

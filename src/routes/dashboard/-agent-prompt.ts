@@ -94,8 +94,8 @@ ${browser}
 1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数；start 返回 task=null 时结束。处理满 \`{num}\` 个后立即停止，不要再调用 start（包括 continue_after_result_failure），直接进入最后汇总；不要为了说明“已达上限”去领取或回传任何任务。任务范围为 all_eligible 时，接口返回的每个任务都要尝试，不要因为类型不同或费用未知就跳过。
 2. 按接口文档核对任务、租约和产品。先看 product.submission_readiness：blocking_fields 不为空时直接回传 needs_user，写明缺失或错误的字段，不要打开目标站；其余字段按目标站要求处理。检查通过后，从 opportunity.submission_url 进入，按页面上的真实入口操作。
 3. 先读任务备注（description、user_notes、library_notes、product.agent_submission_note）和目标站要求，再填写产品资料，包括表单需要且 product 中已有的资料。提交前检查必填项、文件上传和校验错误。
-4. 登录和注册只能用 product.email 这一个邮箱：用 Google 登录时只选这个账号，浏览器里的其他 Google 账号一律不用；账号选择里没有它，或目标站不支持 Google 登录时，用这个邮箱注册。product.email 为空时回传 needs_user，写明需要在网站资料里填写产品邮箱。目标站要求设置或确认密码时（包括 Google 登录后要求补设密码），一律填 product.registration_password，这是用户为代注册预先设置并授权使用的密码；登录已有账号时也先试它。registration_password 为 null 时才回传 needs_user，写明需要在网站资料里设置代注册密码。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。尽量复用已有账号、资料或 listing，避免重复创建。
-5. 目标站要求互链时，到 \`{backlinkManagementUrl}\` 配置并确认生效，不改动无关设置。
+4. 在目标站登录和注册只能用 product.email 这一个邮箱：用 Google 登录时只选这个账号，浏览器里的其他 Google 账号一律不用；账号选择里没有它，或目标站不支持 Google 登录时，用这个邮箱注册。product.email 为空时回传 needs_user，写明需要在网站资料里填写产品邮箱。目标站要求设置或确认密码时（包括 Google 登录后要求补设密码），一律填 product.registration_password，这是用户为代注册预先设置并授权使用的密码；登录已有账号时也先试它。registration_password 为 null 时才回传 needs_user，写明需要在网站资料里设置代注册密码。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。尽量复用已有账号、资料或 listing，避免重复创建。
+5. 目标站要求互链时，到 \`{backlinkManagementUrl}\` 配置并确认生效，不改动无关设置。这是用户自己网站的后台，第 4 条的邮箱规则不适用：直接使用浏览器里已登录的管理员账号，不要在这里用 product.email 登录、注册或退出。打不开、未登录或没有权限时回传 needs_user（reason 为 reciprocal），写明需要先在浏览器里登录这个后台。配置后用无登录的方式（如查看网页源代码）确认对方能抓到链接；页面源代码里没有链接时，同样回传 needs_user 并写明原因。
 6. 租约剩余不足 5 分钟时调用 heartbeat 续租。
 7. 填完表单后直接提交，以目标站明确的收件、审核或公开结果作为证据；登录成功或中途保存都不算提交成功。已收件或进入审核就回传 submitted，不必等上线；已经有公开 listing 时，分别验证页面和外链是否生效。提交超时或结果不明时只做只读核实，仍无法确认就回传 needs_user，不要重复提交。
 8. 每个任务结束后立刻按接口文档调用 result，如实回传状态、结果地址和必要证据。回传失败时按文档重试或续领，总数不超过本批上限。
@@ -227,7 +227,8 @@ POST /api/v1/backlink-tasks/{task_id}/result
   "result_url": null,
   "proof": "The site accepted the listing and put it in review.",
   "needs_user": null,
-  "last_error": null
+  "last_error": null,
+  "reason": null
 }
 \`\`\`
 
@@ -241,6 +242,22 @@ POST /api/v1/backlink-tasks/{task_id}/result
 | \`needs_user\` | 无法自动完成或无法核实；在 \`needs_user\` 写明原因和需要的资料或操作 |
 | \`blocked\` | 目标站失效、被 WAF 拦截、没有入口或明确禁止；需要 \`proof\` 或 \`last_error\` |
 | \`skipped\` | 按用户规则不提交、目标站禁止尝试或用户要求跳过；需要 \`proof\` 或 \`last_error\`。是否因主题无关而跳过，只看用户规则 |
+
+needs_user / blocked / skipped 必须同时传 \`reason\`，取下表中最贴切的一项；submitted / live / duplicate 传 null。服务端会据此整理用户的外链库：\`paid\` 把这条外链标为付费，不再进入推荐；\`captcha\`、\`forbidden\` 会停用这条外链，其他网站也不再领取。不确定时用 \`other\`，不要为了停用而选 \`captcha\` 或 \`forbidden\`。
+
+| reason | 含义 |
+| --- | --- |
+| \`paid\` | 只有付费方案才能提交或上线 |
+| \`captcha\` | 验证码或人机校验阻止自动化操作 |
+| \`forbidden\` | 目标站明确禁止这类提交 |
+| \`reciprocal\` | 必须先放对方徽章或互链 |
+| \`account\` | 登录、注册、密码或账号状态问题 |
+| \`email_verify\` | 收不到验证邮件或验证码 |
+| \`missing_info\` | 产品资料缺少表单需要的内容 |
+| \`queue_full\` | 免费名额或发布排期已满 |
+| \`site_down\` | 站点失效、域名停放、被 WAF 拦截或无法访问 |
+| \`no_entry\` | 找不到提交入口或表单 |
+| \`other\` | 其他原因 |
 
 每个任务只回传一次最终结果。重试时请求内容保持不变；已结束的任务不能改写（返回 409）。
 

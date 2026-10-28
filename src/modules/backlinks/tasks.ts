@@ -20,6 +20,7 @@ import {
   BACKLINK_CATEGORIES,
   DATA_SOURCES,
   domainOf,
+  FAILURE_REASONS,
   LEASE_MS,
   oneOf,
   RESULT_STATUSES,
@@ -38,7 +39,12 @@ import {
 } from '@/config/db/schema';
 import { getUuid } from '@/lib/hash';
 
-import { libraryNotes, markProven, viewBacklink } from './library';
+import {
+  applyFailureReason,
+  libraryNotes,
+  markProven,
+  viewBacklink,
+} from './library';
 import { BacklinkError, isHttpUrl, str, strOrNull } from './shared';
 import { agentPassword, productOf, requireWebsite } from './websites';
 
@@ -491,6 +497,12 @@ export async function reportResult(userId: string, id: string, body: any) {
   const proof = strOrNull(body?.proof, 8000);
   const needsUser = strOrNull(body?.needs_user, 4000);
   const lastError = strOrNull(body?.last_error, 4000);
+  const failed = !(FINAL as readonly string[]).includes(status);
+  const reason = body?.reason ?? null;
+  if (reason !== null && !oneOf(reason, FAILURE_REASONS))
+    throw new BacklinkError(
+      `reason must be one of: ${FAILURE_REASONS.join(', ')}`
+    );
 
   if (resultUrl && !isHttpUrl(resultUrl))
     throw new BacklinkError('result_url must be an http(s) URL');
@@ -516,6 +528,7 @@ export async function reportResult(userId: string, id: string, body: any) {
       resultUrl,
       proof,
       needsUser: status === 'needs_user' ? needsUser : null,
+      failureReason: failed ? (reason ?? 'other') : null,
       lastError,
       submittedAt,
       leaseExpiresAt: null,
@@ -532,7 +545,10 @@ export async function reportResult(userId: string, id: string, body: any) {
     )
     .returning();
   if (row) {
-    if (submittedAt && row.backlinkId) await markProven(userId, row.backlinkId);
+    if (row.backlinkId) {
+      if (submittedAt) await markProven(userId, row.backlinkId);
+      else if (reason) await applyFailureReason(userId, row.backlinkId, reason);
+    }
     return { id: row.id, status: row.operationStatus };
   }
 

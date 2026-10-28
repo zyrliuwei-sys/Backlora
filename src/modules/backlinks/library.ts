@@ -25,6 +25,7 @@ import {
   oneOf,
   QUALITIES,
   type BacklinkCategory,
+  type FailureReason,
 } from '@/config/backlinks';
 import {
   backlink,
@@ -723,6 +724,34 @@ export async function markProven(userId: string, backlinkId: string) {
         ne(backlink.status, 'rejected')
       )
     );
+}
+
+/**
+ * What a failure says about the user's own entry: paid-only sites leave 推荐,
+ * CAPTCHA walls and forbidden sites are turned off so no website retries them.
+ */
+export async function applyFailureReason(
+  userId: string,
+  backlinkId: string,
+  reason: FailureReason
+) {
+  const own = and(
+    eq(backlink.id, backlinkId),
+    eq(backlink.ownerUserId, userId),
+    eq(backlink.visibility, 'private')
+  );
+  if (reason === 'paid')
+    await db().update(backlink).set({ costType: 'paid' }).where(own);
+  if (reason === 'captcha' || reason === 'forbidden')
+    await db()
+      .update(userBacklink)
+      .set({ enabled: false })
+      .where(
+        and(
+          eq(userBacklink.userId, userId),
+          eq(userBacklink.backlinkId, backlinkId)
+        )
+      );
 }
 
 /** Personal notes for a set of entries (task `library_notes`). */
