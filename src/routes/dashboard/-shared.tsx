@@ -59,6 +59,7 @@ export interface MyBacklink extends Backlink {
 export interface WebsiteCounts {
   total: number;
   inProgress: number;
+  needsUser: number;
   done: number;
   failed: number;
   pending: number;

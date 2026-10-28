@@ -302,7 +302,7 @@ function WebsitesPage() {
                   </label>
                 </TableCell>
                 <TableCell>
-                  <div className="grid grid-cols-4 gap-6">
+                  <div className="grid grid-cols-5 gap-6">
                     {(
                       [
                         [m['dash.common.total'](), w.counts.total, ''],
@@ -310,6 +310,11 @@ function WebsitesPage() {
                           m['dash.websites.in_progress'](),
                           w.counts.inProgress,
                           'doing',
+                        ],
+                        [
+                          m['dash.websites.needs_user'](),
+                          w.counts.needsUser,
+                          'waiting',
                         ],
                         [m['dash.home.done'](), w.counts.done, 'done'],
                         [

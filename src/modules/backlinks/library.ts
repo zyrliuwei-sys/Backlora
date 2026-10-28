@@ -300,7 +300,6 @@ export type SetSpec =
 
 const recommendedSql = and(
   eq(backlink.status, 'approved'),
-  eq(backlink.category, 'directory'),
   inArray(backlink.costType, ['free', 'freemium']),
   inArray(backlink.confidence, ['observed', 'verified'])
 )!;
@@ -395,7 +394,6 @@ export async function setFacets(userId: string, scope: LibraryScope) {
       tags.set(t, (tags.get(t) ?? 0) + 1);
     if (
       r.status === 'approved' &&
-      r.category === 'directory' &&
       (r.costType === 'free' || r.costType === 'freemium') &&
       (r.confidence === 'observed' || r.confidence === 'verified')
     )

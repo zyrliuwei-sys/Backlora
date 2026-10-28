@@ -557,7 +557,8 @@ export async function dashboardStats(userId: string) {
   return {
     websites,
     records: rows.reduce((s, r) => s + r.n, 0),
-    inProgress: (by.in_progress ?? 0) + (by.needs_user ?? 0),
+    inProgress: by.in_progress ?? 0,
+    needsUser: by.needs_user ?? 0,
     done: (by.submitted ?? 0) + (by.live ?? 0) + (by.duplicate ?? 0),
   };
 }

@@ -283,18 +283,27 @@ export function productOf(w: WebsiteView) {
 export type WebsiteCounts = {
   total: number;
   inProgress: number;
+  needsUser: number;
   done: number;
   failed: number;
   pending: number;
 };
 
 export function emptyCounts(): WebsiteCounts {
-  return { total: 0, inProgress: 0, done: 0, failed: 0, pending: 0 };
+  return {
+    total: 0,
+    inProgress: 0,
+    needsUser: 0,
+    done: 0,
+    failed: 0,
+    pending: 0,
+  };
 }
 
-/** 总数 / 进行中 / 已完成 / 失败 as the website list shows them. */
+/** 总数 / 进行中 / 待处理 / 已完成 / 失败 as the website list shows them. */
 export function bucketOf(status: string): keyof WebsiteCounts {
-  if (status === 'in_progress' || status === 'needs_user') return 'inProgress';
+  if (status === 'in_progress') return 'inProgress';
+  if (status === 'needs_user') return 'needsUser';
   if (status === 'submitted' || status === 'live' || status === 'duplicate')
     return 'done';
   if (status === 'blocked' || status === 'skipped') return 'failed';

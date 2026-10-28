@@ -52,14 +52,20 @@ export const OPERATION_STATUSES = [
 ] as const;
 export type OperationStatus = (typeof OPERATION_STATUSES)[number];
 
-/** 进行中 / 已完成 / 失败 on the website list, and the operation statuses each covers. */
-export const PROGRESS_STATUSES = ['doing', 'done', 'failed'] as const;
+/** 进行中 / 待处理 / 已完成 / 失败 on the website list, and the operation statuses each covers. */
+export const PROGRESS_STATUSES = [
+  'doing',
+  'waiting',
+  'done',
+  'failed',
+] as const;
 export type ProgressStatus = (typeof PROGRESS_STATUSES)[number];
 export const PROGRESS_BUCKETS: Record<
   ProgressStatus,
   readonly OperationStatus[]
 > = {
-  doing: ['in_progress', 'needs_user'],
+  doing: ['in_progress'],
+  waiting: ['needs_user'],
   done: ['submitted', 'live', 'duplicate'],
   failed: ['blocked', 'skipped'],
 };

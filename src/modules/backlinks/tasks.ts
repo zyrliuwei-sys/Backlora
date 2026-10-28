@@ -127,13 +127,20 @@ function eligibility(scope: TaskScope, category?: string): SQL[] {
   if (scope === 'recommended') {
     c.push(
       eq(backlink.status, 'approved'),
-      eq(backlink.category, 'directory'),
       inArray(backlink.costType, ['free', 'freemium']),
       inArray(backlink.confidence, ['observed', 'verified'])
     );
   }
   if (category) c.push(eq(backlink.category, category));
   return c;
+}
+
+/**
+ * A target already reported `blocked` (dead, WAF, no entry, forbidden) on
+ * another of the user's websites: don't spend another attempt on it.
+ */
+function notBlockedElsewhere(userId: string, websiteId: string, target: SQL) {
+  return sql`not exists (select 1 from website_backlink wb2 where wb2.user_id = ${userId} and wb2.website_id <> ${websiteId} and wb2.target_url = ${target} and wb2.operation_status = 'blocked')`;
 }
 
 function newLease(workerId: string) {
@@ -192,6 +199,7 @@ async function claimExisting(
           eq(websiteBacklink.userId, userId),
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
+          notBlockedElsewhere(userId, w.id, sql`${websiteBacklink.targetUrl}`),
           ...sourceConditions(userId, source),
           // Records added by hand have no library entry, so nothing is known
           // about their category or cost: only all_eligible without a
@@ -255,7 +263,8 @@ async function claimFromLibrary(
         and(
           ...sourceConditions(userId, source),
           ...eligibility(scope, category),
-          notYetRecorded
+          notYetRecorded,
+          notBlockedElsewhere(userId, w.id, sql`${backlink.link}`)
         )
       )
       .orderBy(

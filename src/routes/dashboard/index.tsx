@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import {
+  CircleAlert,
   CircleCheck,
   CircleDashed,
   Globe,
@@ -26,6 +27,7 @@ type Stats = {
   websites: number;
   records: number;
   inProgress: number;
+  needsUser: number;
   done: number;
   recentWebsites: Website[];
 };
@@ -110,7 +112,7 @@ function DashboardPage() {
           </>
         }
       />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Tile
           label={m['dash.home.websites']()}
           value={s?.websites}
@@ -125,6 +127,11 @@ function DashboardPage() {
           label={m['dash.home.in_progress']()}
           value={s?.inProgress}
           icon={<CircleDashed className="size-4" />}
+        />
+        <Tile
+          label={m['dash.websites.needs_user']()}
+          value={s?.needsUser}
+          icon={<CircleAlert className="size-4" />}
         />
         <Tile
           label={m['dash.home.done']()}
@@ -180,10 +187,14 @@ function DashboardPage() {
                       {m['dash.home.manage_website']()}
                     </Link>
                   </div>
-                  <div className="mt-3 grid grid-cols-3 border-t pt-3">
+                  <div className="mt-3 grid grid-cols-4 border-t pt-3">
                     {[
                       [m['dash.common.total'](), w.counts?.total ?? 0],
                       [m['dash.home.in_progress'](), w.counts?.inProgress ?? 0],
+                      [
+                        m['dash.websites.needs_user'](),
+                        w.counts?.needsUser ?? 0,
+                      ],
                       [m['dash.home.done'](), w.counts?.done ?? 0],
                     ].map(([label, n]) => (
                       <div key={label as string}>

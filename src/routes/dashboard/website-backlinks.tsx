@@ -482,11 +482,12 @@ function InlineNote({ record }: { record: WebsiteRecord }) {
 
 const progressLabel: Record<ProgressStatus, () => string> = {
   doing: () => m['dash.websites.in_progress'](),
+  waiting: () => m['dash.websites.needs_user'](),
   done: () => m['dash.home.done'](),
   failed: () => m['dash.websites.failed'](),
 };
 
-/** The 操作 select holds an operation status, or `progress:<doing|done|failed>`. */
+/** The 操作 select holds an operation status, or `progress:<doing|waiting|done|failed>`. */
 function statusFromSearch(search: RecordsSearch) {
   if (search.progressStatus) return `progress:${search.progressStatus}`;
   return search.operationStatus ?? 'all';

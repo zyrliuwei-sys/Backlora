@@ -91,7 +91,7 @@ ${browser}
 2. 每次触发生成一个新的 worker_id（格式 codex-<uuid>），本批所有请求共用。调用 start 时传 data_source=\`{dataSource}\`、task_scope=\`{taskScope}\`${o.websiteId ? '、website_id=`{websiteId}`' : ''}。
 
 【逐个任务】
-1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数；start 返回 task=null 时结束。任务范围为 all_eligible 时，接口返回的每个任务都要尝试，不要因为类型不同或费用未知就跳过。
+1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数；start 返回 task=null 时结束。处理满 \`{num}\` 个后立即停止，不要再调用 start（包括 continue_after_result_failure），直接进入最后汇总；不要为了说明“已达上限”去领取或回传任何任务。任务范围为 all_eligible 时，接口返回的每个任务都要尝试，不要因为类型不同或费用未知就跳过。
 2. 按接口文档核对任务、租约和产品。先看 product.submission_readiness：blocking_fields 不为空时直接回传 needs_user，写明缺失或错误的字段，不要打开目标站；其余字段按目标站要求处理。检查通过后，从 opportunity.submission_url 进入，按页面上的真实入口操作。
 3. 先读任务备注（description、user_notes、library_notes、product.agent_submission_note）和目标站要求，再填写产品资料，包括表单需要且 product 中已有的资料。提交前检查必填项、文件上传和校验错误。
 4. 登录和注册只能用 product.email 这一个邮箱：用 Google 登录时只选这个账号，浏览器里的其他 Google 账号一律不用；账号选择里没有它，或目标站不支持 Google 登录时，用这个邮箱注册。product.email 为空时回传 needs_user，写明需要在网站资料里填写产品邮箱。目标站要求设置或确认密码时（包括 Google 登录后要求补设密码），一律填 product.registration_password，这是用户为代注册预先设置并授权使用的密码；登录已有账号时也先试它。registration_password 为 null 时才回传 needs_user，写明需要在网站资料里设置代注册密码。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。尽量复用已有账号、资料或 listing，避免重复创建。
