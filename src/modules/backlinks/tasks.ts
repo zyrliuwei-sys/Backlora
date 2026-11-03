@@ -251,6 +251,13 @@ function sourceConditions(userId: string, source: DataSource): SQL[] {
   ];
 }
 
+/** Public entries cannot be repriced by one user. Respect that user's paid
+ * evidence without changing the shared catalog or other users' eligibility.
+ */
+function notPreviouslyPaid(userId: string, target: SQL) {
+  return sql`not exists (select 1 from ${websiteBacklink} paid where paid.user_id = ${userId} and paid.target_url = ${target} and paid.failure_reason = 'paid')`;
+}
+
 /** Claim one existing pending record of the website. */
 async function claimExisting(
   userId: string,
@@ -271,6 +278,9 @@ async function claimExisting(
           eq(websiteBacklink.userId, userId),
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
+          includePaid
+            ? undefined
+            : notPreviouslyPaid(userId, sql`${websiteBacklink.targetUrl}`),
           // Turned off in the user's library: stop working it everywhere.
           sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${websiteBacklink.backlinkId} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`,
           ...sourceConditions(userId, source),
@@ -358,6 +368,9 @@ async function claimFromLibrary(
         and(
           ...sourceConditions(userId, source),
           ...eligibility(scope, category, includePaid),
+          includePaid
+            ? undefined
+            : notPreviouslyPaid(userId, sql`${backlink.link}`),
           notYetRecorded,
           sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${backlink.id} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`
         )

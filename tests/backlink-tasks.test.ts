@@ -50,7 +50,8 @@ const { user, website, backlink, userBacklink, websiteBacklink } =
   await import('../src/config/db/schema');
 const { startTask, reportResult, heartbeat, getTask } =
   await import('../src/modules/backlinks/tasks');
-const { retryRecords } = await import('../src/modules/backlinks/records');
+const { retryRecords, createRecord } =
+  await import('../src/modules/backlinks/records');
 const { applyFailureReason } = await import('../src/modules/backlinks/library');
 after(async () => {
   await disposeD1?.();
@@ -409,4 +410,68 @@ test('result and library evidence roll back together when a library update fails
     proof: 'Receipt',
   });
   assert.equal((await getTask(id, task.id)).status, 'submitted');
+});
+
+test('manual records cannot attach another user private entry or invent a running lease', async () => {
+  const owner = await fixture();
+  const other = await fixture();
+  await assert.rejects(
+    createRecord(other, {
+      websiteId: other,
+      targetUrl: 'https://directory.example.test/private',
+      backlinkId: owner,
+    }),
+    (e: any) => e.status === 404
+  );
+  await assert.rejects(
+    createRecord(other, {
+      websiteId: other,
+      targetUrl: 'https://directory.example.test/manual',
+      operationStatus: 'in_progress',
+    }),
+    /lease/
+  );
+});
+
+test('legacy orphaned running records become reviewable and heartbeat cannot resurrect them', async () => {
+  const id = await fixture();
+  await record(id, 'orphan', 'in_progress', {
+    claimedBy: `${id}-worker`,
+    leaseId: 'orphan',
+    leaseExpiresAt: null,
+  });
+  assert.equal(
+    (await getTask(id, `${id}-orphan`)).failure_reason,
+    'lease_expired'
+  );
+  await assert.rejects(
+    heartbeat(id, `${id}-orphan`, {
+      worker_id: `${id}-worker`,
+      lease_id: 'orphan',
+    }),
+    (e: any) => e.status === 409
+  );
+});
+
+test('paid evidence from a public target filters that user only, with explicit opt-in', async () => {
+  const id = await fixture('unknown');
+  const other = await fixture();
+  await db()
+    .update(backlink)
+    .set({ visibility: 'public', ownerUserId: null })
+    .where(eq(backlink.id, id));
+  await record(id, 'paid', 'needs_user', {
+    websiteId: `${id}-other`,
+    targetUrl: `https://directory.example.test/${id}`,
+    failureReason: 'paid',
+  });
+  assert.equal((await claim(id, { data_source: 'plaza' })).task, null);
+  assert.ok(
+    (await claim(id, { data_source: 'plaza', include_paid: true })).task
+  );
+  assert.ok((await claim(other, { data_source: 'plaza' })).task);
+  assert.equal(
+    (await db().select().from(backlink).where(eq(backlink.id, id)))[0].costType,
+    'unknown'
+  );
 });

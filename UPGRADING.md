@@ -48,11 +48,24 @@ exports, permission codes, and behavior that changes for end users.
 
 ## 2026-11-03: Backlink task reliability
 
+- Concurrent starts with one worker now share a single active lease, including
+  on-demand library tasks. Finish or park that task before requesting another
+  website with the same worker. Disabled websites cannot resume work.
+- Expired/missing leases cannot submit results or renew; querying an expired
+  task marks it for review. An idempotent result retry must contain the same
+  evidence, not just the same status. Result and library evidence commit
+  atomically on D1.
+- Manual records cannot manufacture `in_progress` without a lease or reference
+  another user's private opportunity. Run `pnpm test:backlinks:d1` for the
+  isolated local D1 concurrency and rollback suite.
+
 - Recopy generated automation prompts: new runs default to recommended entries,
   exclude known paid targets (`include_paid=false`), preflight admin/mail access,
   renew leases every three minutes and check old evidence before any retry.
 - `all_eligible` also excludes known paid targets by default. Set `include_paid=true`
   only to inspect paid opportunities; this is not payment authorization.
+  A user's prior `paid` result also filters that target across their websites,
+  including public entries, without modifying the shared catalog or other users.
 - A blocked result or CAPTCHA no longer disables the target for other websites.
   Previously disabled personal-library entries remain disabled until reviewed.
 - Failed result reports now require an explicit `reason`. Update external clients.

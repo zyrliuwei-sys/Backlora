@@ -29,7 +29,8 @@
     "test:atomic": "node --import tsx --test tests/atomic.test.ts",
     "test:atomic:d1": "ATOMIC_D1=1 node --import tsx --test tests/atomic.test.ts",
     "test:atomic:pg": "TSX_TSCONFIG_PATH=tests/tsconfig.pg.json node --import tsx --test tests/atomic.test.ts",
-    "test:backlinks": "node --import tsx --test tests/backlink-tasks.test.ts"
+    "test:backlinks": "node --import tsx --test tests/backlink-tasks.test.ts",
+    "test:backlinks:d1": "BACKLINK_D1=1 node --import tsx --test tests/backlink-tasks.test.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": "prettier --write",

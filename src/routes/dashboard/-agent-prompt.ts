@@ -185,7 +185,7 @@ POST /api/v1/backlink-tasks/start
 - \`include_paid\`：默认 false，排除已知付费目标；只有明确需要调查付费机会时才传 true，这也不授权付款。
 - \`category\`：可选，取值 \`directory\`、\`blog_comment\`、\`forum_community\`、\`content_submission\`、\`profile\`、\`review_platform\`、\`other\`。
 
-同一 \`worker_id\` 有未过期的 in_progress 任务时优先返回它，否则领取新任务；没有任务时返回 \`data.task = null\`。领取后请核对：
+同一 \`worker_id\` 的并发 start 只返回同一个有效租约；有未结束任务时不能切换网站，网站停用后不能恢复执行。没有有效任务时才领取新任务；没有任务时返回 \`data.task = null\`。领取后请核对：
 
 - \`product.id\` 与传入的 \`website_id\` 一致；
 - \`product.auto_backlink_enabled\` 为 true，否则停止该网站的任务；
@@ -211,7 +211,7 @@ POST /api/v1/backlink-tasks/start
 GET /api/v1/backlink-tasks/{task_id}
 \`\`\`
 
-用于中断或租约冲突后核对状态，只返回已保存的结果，不会去外站核实。恢复未完成的任务前，先确认是否已经提交过；已结束的任务不要再执行。过期的租约不能复用，过期任务会在下一次 start 时转为 needs_user。
+用于中断或租约冲突后核对状态，只返回已保存的结果，不会去外站核实。恢复未完成的任务前，先确认是否已经提交过；已结束的任务不要再执行。过期的租约不能复用，过期任务会在查询或下一次 start 时转为 needs_user，不能回传新的结果。
 
 ## 续租
 
