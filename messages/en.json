@@ -1752,5 +1752,20 @@
   "dash.reason.result_unknown": "Unconfirmed outcome",
   "dash.records.retry": "Requeue unfinished",
   "dash.records.retry_done": "{count} unfinished tasks requeued.",
-  "dash.records.retry_hint": "Requeue selected needs_user, blocked or skipped tasks after resolving their blockers. Existing evidence is retained for duplicate checks. Completed and running tasks are unchanged."
+  "dash.records.retry_hint": "Requeue selected needs_user, blocked or skipped tasks after resolving their blockers. Existing evidence is retained for duplicate checks. Completed and running tasks are unchanged.",
+  "dash.badges.title": "Automatic badge installation",
+  "dash.badges.description": "Connect this website once so agents can install official badges without an administrator browser session. The credential only adds or updates badges.",
+  "dash.badges.ready": "Connected — automatic installation is ready",
+  "dash.badges.not_connected": "Not connected — browser installation remains available",
+  "dash.badges.reconnect": "Connection needs attention: check the saved website URL and host configuration",
+  "dash.badges.load_error": "Unable to load connection status",
+  "dash.badges.save_url": "Save the website URL before connecting its badge credential.",
+  "dash.badges.token": "Dedicated badge credential",
+  "dash.badges.token_hint": "Paste the dedicated credential from site setup",
+  "dash.badges.connect": "Verify and connect",
+  "dash.badges.disconnect": "Disconnect",
+  "dash.badges.disconnect_hint": "Future tasks will use browser installation. Existing public badges stay in place.",
+  "dash.badges.saved": "Badge connection updated",
+  "admin.user_detail.timeline_badge_connection_changed": "Badge connection updated",
+  "admin.user_detail.timeline_badge_installation": "Badge installation"
 }

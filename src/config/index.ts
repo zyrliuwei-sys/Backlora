@@ -31,6 +31,7 @@ export const envConfigs: Record<string, string> = {
   // Auth
   auth_url: procEnv.AUTH_URL ?? publicEnv('VITE_APP_URL') ?? '',
   auth_secret: procEnv.AUTH_SECRET ?? '',
+  backlink_badge_allowed_hosts: procEnv.BACKLINK_BADGE_ALLOWED_HOSTS ?? '',
   auth_cookie_prefix: procEnv.AUTH_COOKIE_PREFIX ?? '',
 
   // Payment - Stripe

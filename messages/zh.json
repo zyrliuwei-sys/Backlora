@@ -1752,5 +1752,20 @@
   "dash.reason.result_unknown": "提交结果不明",
   "dash.records.retry": "重新排队",
   "dash.records.retry_done": "已将 {count} 条未完成任务重新排队。",
-  "dash.records.retry_hint": "对应问题解决后，将选中的待处理、阻塞或跳过任务重新排队。保留原证据供执行器核实，避免重复提交；已完成和进行中的任务不会被重置。"
+  "dash.records.retry_hint": "对应问题解决后，将选中的待处理、阻塞或跳过任务重新排队。保留原证据供执行器核实，避免重复提交；已完成和进行中的任务不会被重置。",
+  "dash.badges.title": "自动安装徽章",
+  "dash.badges.description": "为网站连接一次，之后 AI 可直接安装官方徽章，无需浏览器保持管理员登录。专用密钥仅允许添加或更新徽章。",
+  "dash.badges.ready": "已连接，可自动安装",
+  "dash.badges.not_connected": "尚未连接，目前仍使用浏览器安装",
+  "dash.badges.reconnect": "连接需要更新：请检查已保存的网址和站点接入配置",
+  "dash.badges.load_error": "无法读取连接状态",
+  "dash.badges.save_url": "请先保存网站地址，再连接对应站点的徽章密钥。",
+  "dash.badges.token": "本站专用徽章密钥",
+  "dash.badges.token_hint": "粘贴站点接入时生成的专用密钥",
+  "dash.badges.connect": "验证并连接",
+  "dash.badges.disconnect": "断开连接",
+  "dash.badges.disconnect_hint": "之后的任务将使用浏览器安装，已经公开的徽章会保留。",
+  "dash.badges.saved": "徽章连接已更新",
+  "admin.user_detail.timeline_badge_connection_changed": "更新徽章连接",
+  "admin.user_detail.timeline_badge_installation": "安装徽章"
 }

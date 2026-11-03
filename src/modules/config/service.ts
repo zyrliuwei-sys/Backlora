@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 
 import { db, hasDatabaseConfigured, isCloudflareWorker } from '@/core/db';
+import { atomic } from '@/core/db/atomic';
 import { envConfigs } from '@/config';
 import { config } from '@/config/db/schema';
 import { decryptSecret, encryptSecret, isEncryptedSecret } from '@/lib/crypto';
@@ -8,6 +9,10 @@ import { decryptSecret, encryptSecret, isEncryptedSecret } from '@/lib/crypto';
 import { getSettings } from './settings';
 
 export type ConfigMap = Record<string, string>;
+
+/** Tenant credentials are managed only through the owned-website connection route. */
+export const isInternalConfigKey = (name: string) =>
+  /^badge_connection_[A-Za-z0-9_-]+_secret$/.test(name);
 
 // In-memory cache
 let cachedConfigs: ConfigMap | null = null;
@@ -44,6 +49,7 @@ export async function getDbConfigs(): Promise<ConfigMap> {
     const result: ConfigMap = {};
     for (const row of rows) {
       if (!row.name || row.value === null || row.value === undefined) continue;
+      if (isInternalConfigKey(row.name)) continue;
 
       if (isEncryptedSecret(row.value)) {
         const plain = await decryptSecret(row.value);
@@ -92,6 +98,7 @@ const PROTECTED_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'db_schema',
   'db_singleton_enabled',
   'db_max_connections',
+  'backlink_badge_allowed_hosts',
 ]);
 
 /**
@@ -176,13 +183,18 @@ export function assertEndpointSecretsResupplied(
  * admin UI are skipped (the user didn't change them). Secret keys are
  * encrypted at rest — see SECRET_SETTING_NAMES / SECRET_KEY_PATTERN.
  */
-export async function saveConfigs(configs: ConfigMap) {
+export async function saveConfigs(
+  configs: ConfigMap,
+  options?: { internal?: boolean }
+) {
   assertEndpointSecretsResupplied(configs, await getAllConfigs());
   const entries = await Promise.all(
     Object.entries(configs)
       .filter(
         ([name, value]) =>
-          !PROTECTED_CONFIG_KEYS.has(name) && !isMaskedConfigValue(value)
+          !PROTECTED_CONFIG_KEYS.has(name) &&
+          !isMaskedConfigValue(value) &&
+          (!isInternalConfigKey(name) || options?.internal === true)
       )
       .map(
         async ([name, value]): Promise<[string, string]> =>
@@ -195,21 +207,14 @@ export async function saveConfigs(configs: ConfigMap) {
     return;
   }
 
-  await db().transaction(async (tx: any) => {
-    for (const [name, value] of entries) {
-      const [existing] = await tx
-        .select()
-        .from(config)
-        .where(eq(config.name, name))
-        .limit(1);
-
-      if (existing) {
-        await tx.update(config).set({ value }).where(eq(config.name, name));
-      } else {
-        await tx.insert(config).values({ name, value });
-      }
-    }
-  });
+  await atomic((q) =>
+    entries.map(([name, value]) =>
+      q
+        .insert(config)
+        .values({ name, value })
+        .onConflictDoUpdate({ target: config.name, set: { value } })
+    )
+  );
 
   // Invalidate cache
   cachedConfigs = null;
@@ -294,7 +299,8 @@ export async function replaceCustomConfigs(
   for (const pair of pairs) {
     const key = (pair?.key ?? '').trim();
     if (!key) continue; // skip blank rows
-    if (reserved.has(key)) throw new Error(`Reserved key not allowed: ${key}`);
+    if (reserved.has(key) || isInternalConfigKey(key))
+      throw new Error(`Reserved key not allowed: ${key}`);
     if (!CUSTOM_KEY_PATTERN.test(key)) throw new Error(`Invalid key: ${key}`);
     if (seen.has(key)) throw new Error(`Duplicate key: ${key}`);
     seen.add(key);

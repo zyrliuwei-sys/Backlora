@@ -30,7 +30,9 @@
     "test:atomic:d1": "ATOMIC_D1=1 node --import tsx --test tests/atomic.test.ts",
     "test:atomic:pg": "TSX_TSCONFIG_PATH=tests/tsconfig.pg.json node --import tsx --test tests/atomic.test.ts",
     "test:backlinks": "node --import tsx --test tests/backlink-tasks.test.ts",
-    "test:backlinks:d1": "BACKLINK_D1=1 node --import tsx --test tests/backlink-tasks.test.ts"
+    "test:backlinks:d1": "BACKLINK_D1=1 node --import tsx --test tests/backlink-tasks.test.ts",
+    "test:badge-bridge": "node --import tsx --test tests/badge-bridge.test.ts",
+    "test:badge-bridge:d1": "BACKLINK_D1=1 node --import tsx --test tests/badge-bridge.test.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": "prettier --write",
@@ -71,6 +73,7 @@
     "mysql2": "^3.14.0",
     "nanoid": "^5.0.0",
     "next-themes": "^0.4.6",
+    "parse5": "8.0.0",
     "postgres": "^3.4.7",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",

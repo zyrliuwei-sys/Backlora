@@ -568,6 +568,16 @@ async function conflict(userId: string, id: string): Promise<never> {
   );
 }
 
+/** Renew and authorize a badge write for this exact task and worker. */
+export async function authorizeTaskBadge(
+  userId: string,
+  id: string,
+  body: any
+) {
+  await heartbeat(userId, id, body);
+  return (await recordOf(userId, id)).websiteId;
+}
+
 /** POST /api/v1/backlink-tasks/{id}/heartbeat */
 export async function heartbeat(userId: string, id: string, body: any) {
   const workerId = workerIdOf(body?.worker_id);

@@ -46,6 +46,20 @@ exports, permission codes, and behavior that changes for end users.
 
 ---
 
+## 2026-11-03: Dedicated badge automation connection
+
+- Websites can connect a dedicated add/update-only badge credential in their edit
+  page. API agents install through their active task lease and verify anonymous
+  public HTML; they no longer need an administrator browser login for connected sites.
+- Activation requires the site endpoint and its `FOOTER_BADGE_AUTOMATION_TOKEN_HASH`,
+  plus Backlora `CONFIG_ENCRYPTION_KEY` and `BACKLINK_BADGE_ALLOWED_HOSTS`.
+  Follow [the activation guide](docs/badge-automation.md). Existing browser workflows
+  continue until connected. No schema migration is needed.
+- Connections are encrypted, owner-scoped and excluded from general admin/custom
+  settings. Changing a website origin requires reconnecting. General config saves
+  now use atomic upserts, including concurrent first-time writes on D1.
+- Recopy generated automation prompts into existing scheduled runs after deployment.
+
 ## 2026-11-03: Backlink task reliability
 
 - Concurrent starts with one worker now share a single active lease, including
@@ -62,6 +76,10 @@ exports, permission codes, and behavior that changes for end users.
 - Recopy generated automation prompts: new runs default to recommended entries,
   exclude known paid targets (`include_paid=false`), preflight admin/mail access,
   renew leases every three minutes and check old evidence before any retry.
+  Badge installation is explicitly covered by the run's authorization. Agents
+  must attempt the install/save/public-HTML/target-verification flow, report the
+  concrete blocker and request only the minimum necessary user action. A badge
+  requirement alone is not a `reciprocal` failure or a request for new approval.
 - `all_eligible` also excludes known paid targets by default. Set `include_paid=true`
   only to inspect paid opportunities; this is not payment authorization.
   A user's prior `paid` result also filters that target across their websites,

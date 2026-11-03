@@ -83,6 +83,7 @@ ${params.join('\n')}
 说明：下文的 \`{参数名}\` 指上方同名参数；参数值为 \`product.*\` 时，使用 start 返回的对应字段。
 
 本任务按计划无人值守运行，不会等待人工确认。登录、验证、填写资料、配置互链和最终提交都已获授权，唯独不得付款。
+这里的“配置互链”明确包括：在 product 指定的自有网站徽章后台添加或更新目标站的官方徽章，再返回目标站验证并继续提交。复用这项既有授权；技能模板中的 approval_required 不代表本任务还缺授权，不得仅因需要安装徽章就再次询问或要求用户手动安装。浏览器被用户接管、账号权限不足或必须由本人完成的身份验证仍需暂停对应操作。
 
 【浏览器】
 ${browser}
@@ -91,7 +92,7 @@ ${browser}
 1. 先通读末尾的接口文档。以 start 返回的 product 作为唯一资料来源，可以据此撰写、翻译或改写文案，但不得编造事实。
 2. 每次触发生成一个新的 worker_id（格式 codex-<uuid>），本批所有请求共用。调用 start 时传 data_source=\`{dataSource}\`、task_scope=\`{taskScope}\`、include_paid=false${o.websiteId ? '、website_id=`{websiteId}`' : ''}。
 
-3. 每个产品在本批开始时只做一次能力预检：打开其互链配置地址，核对实际能进入徽章管理页且具备写权限；打开邮件管理地址，核对预定邮箱会话可读取。跳到 sign-in/settings、401、403 都属于后台访问不可用，不能假设“已经登录 Google”等于本站管理员。缓存该结果，本批不反复填完互链表单才发现后台无权；直接提交机会可继续。缺少登录身份时记录具体后台 URL 和状态，不得自行提权或替换管理员账号。
+3. 每个产品在本批开始时只做一次能力预检：先调用 GET /api/websites/{product.id}/badge-connection；ready=true 时使用下文的专用安装接口，不需要登录徽章后台。尚未连接时才打开其互链配置地址，核对实际能进入徽章管理页且具备写权限；打开邮件管理地址，核对预定邮箱会话可读取。跳到 sign-in/settings、401、403 都属于后台访问不可用，不能假设“已经登录 Google”等于本站管理员。缓存该结果，本批不反复填完互链表单才发现后台无权；直接提交机会可继续。缺少登录身份时记录具体后台 URL 和状态，不得自行提权或替换管理员账号。
 4. 目标站登录前核对当前账号邮箱；其他产品留下的会话和草稿不能直接复用。只有 Google 登录而产品邮箱没有 Google 身份时，记录 account，并继续有可用登录方式的目标。
 
 【逐个任务】
@@ -99,7 +100,7 @@ ${browser}
 2. 按接口文档核对任务、租约和产品。先看 product.submission_readiness：blocking_fields 不为空时直接回传 needs_user，写明缺失或错误的字段，不要打开目标站；其余字段按目标站要求处理。检查通过后，从 opportunity.submission_url 进入，按页面上的真实入口操作。is_retry=true 时先阅读原 proof、result_url、needs_user、last_error、failure_reason，用只读方式检查已有 listing、草稿和收件记录；已有收件不得重复发送，优先恢复原草稿。
 3. 先读任务备注（description、user_notes、library_notes、product.agent_submission_note）和目标站要求，再填写产品资料，包括表单需要且 product 中已有的资料。提交前检查必填项、文件上传和校验错误。
 4. 在目标站登录和注册只能用 product.email 这一个邮箱：用 Google 登录时只选这个账号，浏览器里的其他 Google 账号一律不用；账号选择里没有它，或目标站不支持 Google 登录时，用这个邮箱注册。product.email 为空时回传 needs_user，写明需要在网站资料里填写产品邮箱。目标站要求设置或确认密码时（包括 Google 登录后要求补设密码），一律填 product.registration_password，这是用户为代注册预先设置并授权使用的密码；登录已有账号时也先试它。registration_password 为 null 时才回传 needs_user，写明需要在网站资料里设置代注册密码。邮箱验证码到 \`{emailManagementUrl}\` 读取，只看与当前目标站和账号相关的邮件。产品邮箱是转发过来的，验证邮件经常落在垃圾邮件里：不要只看收件箱，直接在 Gmail 搜索栏输入 \`in:anywhere to:<product.email> newer_than:1d\`（可再加目标站域名或 verify、code 等关键词）搜索，它会同时搜收件箱、垃圾邮件和所有邮件。等待最多约 3 分钟并重新搜索几次，仍找不到再回传 needs_user（reason 为 email_verify）。只读取需要的那封邮件，不要删除、移动或标记其他邮件。尽量复用已有账号、资料或 listing，避免重复创建。
-5. 目标站要求互链时，到 \`{backlinkManagementUrl}\` 配置并确认生效，不改动无关设置。这是用户自己网站的后台，第 4 条的邮箱规则不适用：直接使用浏览器里已登录的管理员账号，不要在这里用 product.email 登录、注册或退出。打不开、未登录或没有权限时回传 needs_user（reason 为 reciprocal），写明需要先在浏览器里登录这个后台。保留官方代码的精确 href、文字和 data-* 验证属性；不得用不相关的图片或删掉验证属性来凑通过。先查是否已有同一徽章，避免重复添加。配置后用无登录的方式读取原始 HTML，确认实际 <a> 链接及要求的属性存在（仅在脚本 JSON 中出现网址不算）；页面源代码里没有链接时，同样回传 needs_user 并写明原因。
+5. 目标站要求互链且 badge-connection 的 ready=true 时，复制原始官方徽章 HTML，调用 POST /api/v1/backlink-tasks/{task.id}/badge（worker_id、lease_id、html）。只把 Backlora API Key 发给 BASE_URL，不读取或索要站点专用密钥。只有 installed=true 且 publicly_verified=true 才回目标站点击验证并继续提交；saved_not_public 表示已保存但公开验证未通过，保留同一任务、租约和 html，追加 verify_only=true 只读重验；30 秒内最多重验 2 次，公开验证成功后继续，不重复追加徽章。接口未连接时才走浏览器方式；凭据失效时写明需要重新连接，不能改用其他账号或发送密钥到别处。浏览器方式自动完成“复制官方代码 → 打开 \`{backlinkManagementUrl}\` → 添加或更新徽章并保存 → 检查匿名首页原始 HTML → 返回目标站点击验证 → 继续提交”，不改动无关设置。这是用户自己网站的后台，第 4 条的邮箱规则不适用：直接使用浏览器里已登录的管理员账号，不要在这里用 product.email 登录、注册或退出。先查是否已有同一徽章，避免重复添加；保留官方代码的精确 href、文字和 data-* 验证属性，不得用不相关的图片或删掉验证属性来凑通过。确认实际 <a> 链接及要求的属性存在，仅在脚本 JSON 中出现网址不算。若目标站提供符合本任务要求、免费且无需徽章的路线，可改走该路线并如实记录链接属性。只有出现实际阻碍才回传 needs_user（reason 为 reciprocal）：后台地址缺失、登录/权限不可用、保存明确失败，或有限重试后原始 HTML/目标站验证仍不通过。写明后台 URL、实际错误、已做的步骤和最小所需操作；缺管理员登录就请用户登录，后续安装由自动化完成，不要把整套安装步骤转交用户。解析、保存和渲染错误应明确记录为技术故障，不能笼统写“需要人工安装”。
 6. 从领取后每 3 分钟检查并调用 heartbeat；在等待邮件、上传、配置徽章等长步骤开始前先续租，不要等填完表单才续租。心跳失败时先查询任务确认状态，暂停外部写入。
 7. 填完表单后直接提交，以目标站明确的收件、审核或公开结果作为证据；登录成功或中途保存都不算提交成功。已收件或进入审核就回传 submitted，不必等上线；已经有公开 listing 时，分别验证页面和外链是否生效。提交超时或结果不明时只做只读核实，仍无法确认就回传 needs_user，不要重复提交。
 8. 每个任务结束后立刻按接口文档调用 result，如实回传状态、结果地址和必要证据；失败必须选具体 reason。人机校验选 captcha，邮件验证码选 email_verify，后台权限或徽章验证选 reciprocal，Google 身份不匹配选 account，结果不明选 result_unknown，租约超时选 lease_expired；只有确实无法归类时才用 other。回传失败时按文档重试或续领，总数不超过本批上限。
@@ -213,6 +214,20 @@ GET /api/v1/backlink-tasks/{task_id}
 
 用于中断或租约冲突后核对状态，只返回已保存的结果，不会去外站核实。恢复未完成的任务前，先确认是否已经提交过；已结束的任务不要再执行。过期的租约不能复用，过期任务会在查询或下一次 start 时转为 needs_user，不能回传新的结果。
 
+## 自动安装徽章
+
+GET /api/websites/{website_id}/badge-connection 返回 configured、ready、origin，不返回站点密钥。
+
+已连接时：
+
+\`\`\`http
+POST /api/v1/backlink-tasks/{task_id}/badge
+
+{ "worker_id": "codex-<uuid>", "lease_id": "<lease_id>", "html": "<a href='https://directory.example/'>Directory badge</a>" }
+\`\`\`
+
+只接受该用户当前任务的有效租约；接口自动续租。每次传一份原始官方徽章代码，服务端验证、保存，再匿名抓取首页。返回 installed、publicly_verified、stage、verification_url、href。 保存后公开 HTML 暂未刷新时，用相同请求追加 verify_only=true，只读重验；该模式不发送站点密钥、不写入徽章。30 秒内最多重验 2 次；not_public 表示仍未出现，verified 才能继续目标站验证。只有公开验证成功才继续目标站的徽章验证；保存成功不代表目标站已收件。网络超时可以重试同一徽章，不能生成新的重复徽章。后台错误会说明未连接、凭据失效或公开 HTML 未就绪；记录具体阻碍，不要统一要求用户手工安装。
+
 ## 续租
 
 \`\`\`http
@@ -258,7 +273,7 @@ needs_user / blocked / skipped 必须同时传 \`reason\`，取下表中最贴�
 | \`paid\` | 只有付费方案才能提交或上线 |
 | \`captcha\` | 验证码或人机校验阻止自动化操作 |
 | \`forbidden\` | 目标站明确禁止这类提交 |
-| \`reciprocal\` | 必须先放对方徽章或互链 |
+| \`reciprocal\` | 自动安装或验证徽章遇到实际阻碍；仅“目标要求徽章”不能作为转人工的理由 |
 | \`account\` | 登录、注册、密码或账号状态问题 |
 | \`email_verify\` | 收不到验证邮件或验证码 |
 | \`missing_info\` | 产品资料缺少表单需要的内容 |

@@ -10,6 +10,7 @@ import { m } from '@/paraglide/messages.js';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
+import { BadgeConnection } from '../../-badge-connection';
 import { ProfileImportDialog } from '../../-profile-import';
 import { PageHeader, type Website } from '../../-shared';
 import {
@@ -37,6 +38,9 @@ function EditWebsitePage() {
       toast.success(m['dash.common.saved']());
       queryClient.invalidateQueries({ queryKey: ['websites'] });
       queryClient.invalidateQueries({ queryKey: ['website', id] });
+      queryClient.invalidateQueries({
+        queryKey: ['website-badge-connection', id],
+      });
       queryClient.invalidateQueries({ queryKey: ['website-options'] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -74,6 +78,10 @@ function EditWebsitePage() {
         }
       />
       <WebsiteFields value={form} onChange={setForm} />
+      <BadgeConnection
+        websiteId={id}
+        disabled={save.isPending || form.url !== site.data?.url}
+      />
       <ProfileImportDialog
         open={importing}
         onOpenChange={setImporting}
