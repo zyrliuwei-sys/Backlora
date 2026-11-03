@@ -1487,12 +1487,12 @@
   "dash.codex.num": "Tasks",
   "dash.codex.scope": "Task scope",
   "dash.codex.scope_recommended": "Recommended (free, checked entries)",
-  "dash.codex.scope_all": "All eligible (including paid and other types)",
+  "dash.codex.scope_all": "Explore eligible entries (exclude known paid)",
   "dash.codex.container": "Automation",
   "dash.codex.copy": "Copy prompt",
   "dash.codex.copied": "Prompt copied (API doc attached)",
   "dash.codex.copy_failed": "Copy failed",
-  "dash.codex.paid_note": "Paid tasks don’t authorize payment: a step that needs payment is recorded as needs_user and the agent moves on.",
+  "dash.codex.paid_note": "Unknown entries need eligibility checks. Known paid targets are excluded; payment is not authorized.",
   "dash.codex.no_key": "No API key yet.",
   "dash.codex.add_key": "Add API key",
   "dash.codex.readiness": "Profile check",
@@ -1747,5 +1747,10 @@
   "dash.reason.queue_full": "Queue full",
   "dash.reason.site_down": "Site down",
   "dash.reason.no_entry": "No entry point",
-  "dash.reason.other": "Other"
+  "dash.reason.other": "Other",
+  "dash.reason.lease_expired": "Lease expired",
+  "dash.reason.result_unknown": "Unconfirmed outcome",
+  "dash.records.retry": "Requeue unfinished",
+  "dash.records.retry_done": "{count} unfinished tasks requeued.",
+  "dash.records.retry_hint": "Requeue selected needs_user, blocked or skipped tasks after resolving their blockers. Existing evidence is retained for duplicate checks. Completed and running tasks are unchanged."
 }

@@ -123,7 +123,7 @@ export function CodexDialog({
   const [dataSource, setDataSource] = useState<DataSource>(defaultSource);
   const [category, setCategory] = useState('all');
   const [num, setNum] = useState(10);
-  const [scope, setScope] = useState<TaskScope>('all_eligible');
+  const [scope, setScope] = useState<TaskScope>('recommended');
   const [container, setContainer] =
     useState<AutomationContainer>('ego-browser');
   const [primary, setPrimary] = useState('');
@@ -138,7 +138,7 @@ export function CodexDialog({
     setDataSource(defaultSource);
     setCategory('all');
     setNum(10);
-    setScope('all_eligible');
+    setScope('recommended');
     setContainer('ego-browser');
     setPrimaryEdited(false);
   }, [open, initialWebsiteId, defaultSource]);

@@ -46,6 +46,25 @@ exports, permission codes, and behavior that changes for end users.
 
 ---
 
+## 2026-11-03: Backlink task reliability
+
+- Recopy generated automation prompts: new runs default to recommended entries,
+  exclude known paid targets (`include_paid=false`), preflight admin/mail access,
+  renew leases every three minutes and check old evidence before any retry.
+- `all_eligible` also excludes known paid targets by default. Set `include_paid=true`
+  only to inspect paid opportunities; this is not payment authorization.
+- A blocked result or CAPTCHA no longer disables the target for other websites.
+  Previously disabled personal-library entries remain disabled until reviewed.
+- Failed result reports now require an explicit `reason`. Update external clients.
+  New reasons `lease_expired` and `result_unknown` need read-only outcome checks.
+- The records list has a guarded **Requeue unfinished** action. It preserves prior
+  evidence and cannot reset submitted/live/duplicate/running records. Resolve the
+  blocker and select records explicitly; no production records are bulk reset.
+- No schema migration or new credentials are required. Existing scheduled prompts
+  are copies and must be regenerated to pick up the new browser workflow.
+
+---
+
 ## 2026-10-17: Guest posts (off by default)
 
 Outside authors can submit paid articles: they write at

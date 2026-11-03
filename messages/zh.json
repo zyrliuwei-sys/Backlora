@@ -1487,12 +1487,12 @@
   "dash.codex.num": "提交数量",
   "dash.codex.scope": "任务范围",
   "dash.codex.scope_recommended": "推荐任务（免费、已核验的外链）",
-  "dash.codex.scope_all": "全部基础合格任务（包含付费及其他类型）",
+  "dash.codex.scope_all": "探索基础合格任务（排除已知付费）",
   "dash.codex.container": "自动化容器",
   "dash.codex.copy": "复制提示词",
   "dash.codex.copied": "提示词已复制（已附接口文档）",
   "dash.codex.copy_failed": "复制失败",
-  "dash.codex.paid_note": "包含付费任务不代表授权付款；遇到必须付费的步骤会记录 needs_user，并继续下一个任务。",
+  "dash.codex.paid_note": "未知机会需要先检查资格；默认排除已知付费目标，不授权付款。",
   "dash.codex.no_key": "还没有 API Key。",
   "dash.codex.add_key": "添加 API Key",
   "dash.codex.readiness": "提交前资料检查",
@@ -1747,5 +1747,10 @@
   "dash.reason.queue_full": "排期已满",
   "dash.reason.site_down": "站点失效",
   "dash.reason.no_entry": "没有提交入口",
-  "dash.reason.other": "其他"
+  "dash.reason.other": "其他",
+  "dash.reason.lease_expired": "租约过期，待核实",
+  "dash.reason.result_unknown": "提交结果不明",
+  "dash.records.retry": "重新排队",
+  "dash.records.retry_done": "已将 {count} 条未完成任务重新排队。",
+  "dash.records.retry_hint": "对应问题解决后，将选中的待处理、阻塞或跳过任务重新排队。保留原证据供执行器核实，避免重复提交；已完成和进行中的任务不会被重置。"
 }

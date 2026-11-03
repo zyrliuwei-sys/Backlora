@@ -504,6 +504,8 @@ const reasonLabel: Record<FailureReason, () => string> = {
   queue_full: () => m['dash.reason.queue_full'](),
   site_down: () => m['dash.reason.site_down'](),
   no_entry: () => m['dash.reason.no_entry'](),
+  lease_expired: () => m['dash.reason.lease_expired'](),
+  result_unknown: () => m['dash.reason.result_unknown'](),
   other: () => m['dash.reason.other'](),
 };
 
@@ -587,6 +589,18 @@ function RecordsPage() {
       }),
     onSuccess: (r) => {
       toast.success(m['dash.records.batch_updated']({ count: r.updated }));
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const retry = useMutation({
+    mutationFn: () =>
+      apiPost<{ updated: number }>('/api/website/backlinks/retry', {
+        ids: [...selected],
+      }),
+    onSuccess: (r) => {
+      toast.success(m['dash.records.retry_done']({ count: r.updated }));
+      setSelected(new Set());
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -828,6 +842,23 @@ function RecordsPage() {
       {selected.size > 0 && (
         <div className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm">
           {m['dash.common.selected']({ count: selected.size })}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={retry.isPending}
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: m['dash.records.retry'](),
+                  description: m['dash.records.retry_hint'](),
+                })
+              )
+                retry.mutate();
+            }}
+          >
+            <RefreshCw className="size-4" />
+            {m['dash.records.retry']()}
+          </Button>
           <span className="text-muted-foreground ml-2">
             {m['dash.records.operation']()}
           </span>

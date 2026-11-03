@@ -5,9 +5,8 @@ import {
   eq,
   gt,
   inArray,
-  isNotNull,
   isNull,
-  lt,
+  lte,
   ne,
   notExists,
   or,
@@ -16,6 +15,7 @@ import {
 } from 'drizzle-orm';
 
 import { db } from '@/core/db';
+import { atomic, AtomicGuardError, guard } from '@/core/db/atomic';
 import {
   BACKLINK_CATEGORIES,
   DATA_SOURCES,
@@ -30,6 +30,7 @@ import {
 } from '@/config/backlinks';
 import {
   backlink,
+  user,
   userBacklink,
   website,
   websiteBacklink,
@@ -40,9 +41,10 @@ import {
 import { getUuid } from '@/lib/hash';
 
 import {
-  applyFailureReason,
+  getVisibleBacklink,
   libraryNotes,
-  markProven,
+  planFailureReason,
+  planMarkProven,
   viewBacklink,
 } from './library';
 import { BacklinkError, isHttpUrl, str, strOrNull } from './shared';
@@ -55,13 +57,7 @@ const FINAL = ['submitted', 'live', 'duplicate'] as const;
 async function taskView(userId: string, r: WebsiteBacklink) {
   const w = await requireWebsite(userId, r.websiteId);
   const b: Backlink | null = r.backlinkId
-    ? ((
-        await db()
-          .select()
-          .from(backlink)
-          .where(eq(backlink.id, r.backlinkId))
-          .limit(1)
-      )[0] ?? null)
+    ? await getVisibleBacklink(userId, r.backlinkId)
     : null;
   const entry = b ? viewBacklink(b) : null;
   return {
@@ -84,6 +80,10 @@ async function taskView(userId: string, r: WebsiteBacklink) {
     proof: r.proof,
     needs_user: r.needsUser,
     last_error: r.lastError,
+    failure_reason: r.failureReason,
+    is_retry:
+      r.attemptCount > 1 ||
+      !!(r.proof || r.resultUrl || r.needsUser || r.lastError),
     submitted_at: r.submittedAt ? new Date(r.submittedAt).toISOString() : null,
     created_at: new Date(r.createdAt).toISOString(),
     updated_at: new Date(r.updatedAt).toISOString(),
@@ -123,13 +123,19 @@ async function recordOf(userId: string, id: string) {
 }
 
 export async function getTask(userId: string, id: string) {
+  await expireLeases(userId);
   return taskView(userId, await recordOf(userId, id));
 }
 
 // ─── Eligibility ────────────────────────────────────────────────────────────
 
-function eligibility(scope: TaskScope, category?: string): SQL[] {
+function eligibility(
+  scope: TaskScope,
+  category?: string,
+  includePaid = false
+): SQL[] {
   const c: SQL[] = [ne(backlink.status, 'rejected')];
+  if (!includePaid) c.push(ne(backlink.costType, 'paid'));
   if (scope === 'recommended') {
     c.push(
       eq(backlink.status, 'approved'),
@@ -139,14 +145,6 @@ function eligibility(scope: TaskScope, category?: string): SQL[] {
   }
   if (category) c.push(eq(backlink.category, category));
   return c;
-}
-
-/**
- * A target already reported `blocked` (dead, WAF, no entry, forbidden) on
- * another of the user's websites: don't spend another attempt on it.
- */
-function notBlockedElsewhere(userId: string, websiteId: string, target: SQL) {
-  return sql`not exists (select 1 from website_backlink wb2 where wb2.user_id = ${userId} and wb2.website_id <> ${websiteId} and wb2.target_url = ${target} and wb2.operation_status = 'blocked')`;
 }
 
 function newLease(workerId: string) {
@@ -164,26 +162,93 @@ async function expireLeases(userId: string) {
     .update(websiteBacklink)
     .set({
       operationStatus: 'needs_user',
-      needsUser: 'Lease expired before a result was reported.',
+      needsUser:
+        'Lease expired before a result was reported. Verify the external outcome before retrying.',
+      failureReason: 'lease_expired',
       leaseExpiresAt: null,
     })
     .where(
       and(
         eq(websiteBacklink.userId, userId),
         eq(websiteBacklink.operationStatus, 'in_progress'),
-        isNotNull(websiteBacklink.leaseExpiresAt),
-        lt(websiteBacklink.leaseExpiresAt, new Date())
+        or(
+          isNull(websiteBacklink.leaseExpiresAt),
+          lte(websiteBacklink.leaseExpiresAt, new Date())
+        )
       )
     );
+}
+
+function claimGuards(userId: string, workerId: string, websiteId: string) {
+  return [
+    // Lock the user before checking for a running task. The separate check
+    // sees the preceding claimant's commit on Postgres as well as D1 batch.
+    guard({
+      table: user,
+      column: 'id',
+      where: eq(user.id, userId),
+      require: sql`1 = 1`,
+      message: 'Claim lock',
+    }),
+    guard({
+      table: website,
+      column: 'id',
+      where: eq(website.id, websiteId),
+      require: and(
+        eq(website.userId, userId),
+        isNull(website.deletedAt),
+        eq(website.status, 'enabled'),
+        eq(website.autoBacklinkEnabled, true),
+        sql`not exists (select 1 from ${websiteBacklink} where ${websiteBacklink.userId} = ${userId} and ${websiteBacklink.claimedBy} = ${workerId} and ${websiteBacklink.operationStatus} = 'in_progress' and ${gt(websiteBacklink.leaseExpiresAt, new Date())})`
+      )!,
+      message: 'Worker busy or website disabled',
+    }),
+  ];
+}
+
+async function activeTask(
+  userId: string,
+  workerId: string,
+  websiteId?: string
+) {
+  const [mine]: WebsiteBacklink[] = await db()
+    .select()
+    .from(websiteBacklink)
+    .where(
+      and(
+        eq(websiteBacklink.userId, userId),
+        eq(websiteBacklink.claimedBy, workerId),
+        eq(websiteBacklink.operationStatus, 'in_progress'),
+        gt(websiteBacklink.leaseExpiresAt, new Date())
+      )
+    )
+    .limit(1);
+  if (!mine) return null;
+  if (websiteId && mine.websiteId !== websiteId)
+    throw new BacklinkError(
+      'Worker already has a task for another website',
+      409
+    );
+  const w = await requireWebsite(userId, mine.websiteId);
+  if (!w.autoBacklinkEnabled || w.status !== 'enabled')
+    throw new BacklinkError('Auto backlinks are off for this website', 409);
+  return mine;
 }
 
 function sourceConditions(userId: string, source: DataSource): SQL[] {
   if (source === 'plaza') return [eq(backlink.visibility, 'public')];
   if (source === 'personal')
     return [
+      or(eq(backlink.visibility, 'public'), eq(backlink.ownerUserId, userId))!,
       sql`exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${backlink.id} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 1)`,
     ];
-  return [];
+  return [
+    or(
+      isNull(backlink.id),
+      eq(backlink.visibility, 'public'),
+      eq(backlink.ownerUserId, userId)
+    )!,
+  ];
 }
 
 /** Claim one existing pending record of the website. */
@@ -193,7 +258,8 @@ async function claimExisting(
   workerId: string,
   source: DataSource,
   scope: TaskScope,
-  category?: string
+  category?: string,
+  includePaid = false
 ): Promise<WebsiteBacklink | null> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const [candidate]: { id: string }[] = await db()
@@ -205,7 +271,6 @@ async function claimExisting(
           eq(websiteBacklink.userId, userId),
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
-          notBlockedElsewhere(userId, w.id, sql`${websiteBacklink.targetUrl}`),
           // Turned off in the user's library: stop working it everywhere.
           sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${websiteBacklink.backlinkId} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`,
           ...sourceConditions(userId, source),
@@ -213,31 +278,52 @@ async function claimExisting(
           // about their category or cost: only all_eligible without a
           // category filter takes them.
           source === 'website' && scope === 'all_eligible' && !category
-            ? or(isNull(websiteBacklink.backlinkId), and(...eligibility(scope)))
-            : and(...eligibility(scope, category))
+            ? or(
+                isNull(websiteBacklink.backlinkId),
+                and(...eligibility(scope, undefined, includePaid))
+              )
+            : and(...eligibility(scope, category, includePaid))
         )
       )
       .orderBy(
+        sql`case when ${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified') then 0 else 1 end`,
         sql`${backlink.dr} is null`,
         desc(backlink.dr),
         asc(websiteBacklink.createdAt)
       )
       .limit(1);
     if (!candidate) return null;
+    const lease = newLease(workerId);
+    try {
+      await atomic((q) => [
+        ...claimGuards(userId, workerId, w.id),
+        q
+          .update(websiteBacklink)
+          .set({
+            ...lease,
+            attemptCount: sql`${websiteBacklink.attemptCount} + 1`,
+          })
+          .where(
+            and(
+              eq(websiteBacklink.id, candidate.id),
+              // Lost the race if another worker took it in between.
+              eq(websiteBacklink.operationStatus, 'pending')
+            )
+          ),
+      ]);
+    } catch (error) {
+      if (error instanceof AtomicGuardError) return null;
+      throw error;
+    }
     const [row]: WebsiteBacklink[] = await db()
-      .update(websiteBacklink)
-      .set({
-        ...newLease(workerId),
-        attemptCount: sql`${websiteBacklink.attemptCount} + 1`,
-      })
+      .select()
+      .from(websiteBacklink)
       .where(
         and(
           eq(websiteBacklink.id, candidate.id),
-          // Lost the race if another worker took it in between.
-          eq(websiteBacklink.operationStatus, 'pending')
+          eq(websiteBacklink.leaseId, lease.leaseId)
         )
-      )
-      .returning();
+      );
     if (row) return row;
   }
   return null;
@@ -250,7 +336,8 @@ async function claimFromLibrary(
   workerId: string,
   source: 'plaza' | 'personal',
   scope: TaskScope,
-  category?: string
+  category?: string,
+  includePaid = false
 ): Promise<WebsiteBacklink | null> {
   const notYetRecorded = notExists(
     db()
@@ -270,34 +357,48 @@ async function claimFromLibrary(
       .where(
         and(
           ...sourceConditions(userId, source),
-          ...eligibility(scope, category),
+          ...eligibility(scope, category, includePaid),
           notYetRecorded,
-          notBlockedElsewhere(userId, w.id, sql`${backlink.link}`)
+          sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${backlink.id} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`
         )
       )
       .orderBy(
+        sql`case when ${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified') then 0 else 1 end`,
         sql`${backlink.dr} is null`,
         desc(backlink.dr),
         asc(backlink.createdAt)
       )
       .limit(1);
     if (!b) return null;
+    const lease = newLease(workerId);
+    const id = getUuid();
+    try {
+      await atomic((q) => [
+        ...claimGuards(userId, workerId, w.id),
+        q
+          .insert(websiteBacklink)
+          .values({
+            id,
+            userId,
+            websiteId: w.id,
+            backlinkId: b.id,
+            sourceDomain: domainOf(w.url),
+            sourceUrl: w.url,
+            targetDomain: domainOf(b.link),
+            targetUrl: b.link,
+            attemptCount: 1,
+            ...lease,
+          })
+          .onConflictDoNothing(),
+      ]);
+    } catch (error) {
+      if (error instanceof AtomicGuardError) return null;
+      throw error;
+    }
     const [row]: WebsiteBacklink[] = await db()
-      .insert(websiteBacklink)
-      .values({
-        id: getUuid(),
-        userId,
-        websiteId: w.id,
-        backlinkId: b.id,
-        sourceDomain: domainOf(w.url),
-        sourceUrl: w.url,
-        targetDomain: domainOf(b.link),
-        targetUrl: b.link,
-        attemptCount: 1,
-        ...newLease(workerId),
-      })
-      .onConflictDoNothing()
-      .returning();
+      .select()
+      .from(websiteBacklink)
+      .where(eq(websiteBacklink.id, id));
     if (row) return row;
   }
   return null;
@@ -309,6 +410,7 @@ export type StartBody = {
   data_source?: unknown;
   task_scope?: unknown;
   category?: unknown;
+  include_paid?: unknown;
   continue_after_result_failure?: {
     task_id?: unknown;
     lease_id?: unknown;
@@ -328,6 +430,9 @@ function workerIdOf(v: unknown): string {
  */
 export async function startTask(userId: string, body: StartBody) {
   const workerId = workerIdOf(body.worker_id);
+  if (body.include_paid !== undefined && typeof body.include_paid !== 'boolean')
+    throw new BacklinkError('include_paid must be a boolean');
+  const includePaid = body.include_paid === true;
   const dataSource: DataSource = oneOf(body.data_source, DATA_SOURCES)
     ? body.data_source
     : 'website';
@@ -355,6 +460,7 @@ export async function startTask(userId: string, body: StartBody) {
           needsUser:
             str(cont.note, 4000) ||
             'Result could not be reported by the agent.',
+          failureReason: 'result_unknown',
           leaseExpiresAt: null,
         })
         .where(
@@ -401,25 +507,21 @@ export async function startTask(userId: string, body: StartBody) {
   }
 
   // Resume this worker's own unexpired task first.
-  const [mine]: WebsiteBacklink[] = await db()
-    .select()
-    .from(websiteBacklink)
-    .where(
-      and(
-        eq(websiteBacklink.userId, userId),
-        eq(websiteBacklink.operationStatus, 'in_progress'),
-        eq(websiteBacklink.claimedBy, workerId),
-        gt(websiteBacklink.leaseExpiresAt, new Date()),
-        websiteId ? eq(websiteBacklink.websiteId, websiteId) : undefined
-      )
-    )
-    .limit(1);
+  const mine = await activeTask(userId, workerId, websiteId);
   if (mine) return { task: await taskView(userId, mine) };
 
   for (const w of sites) {
     // Existing pending records first; plaza/personal then create on demand.
     const row =
-      (await claimExisting(userId, w, workerId, dataSource, scope, category)) ??
+      (await claimExisting(
+        userId,
+        w,
+        workerId,
+        dataSource,
+        scope,
+        category,
+        includePaid
+      )) ??
       (dataSource === 'website'
         ? null
         : await claimFromLibrary(
@@ -428,7 +530,8 @@ export async function startTask(userId: string, body: StartBody) {
             workerId,
             dataSource,
             scope,
-            category
+            category,
+            includePaid
           ));
     if (row) {
       await db()
@@ -438,7 +541,10 @@ export async function startTask(userId: string, body: StartBody) {
       return { task: await taskView(userId, row) };
     }
   }
-  return { task: null };
+  // A concurrent start may have won the claim. Return its lease rather than
+  // reporting exhaustion or abandoning a second task.
+  const concurrent = await activeTask(userId, workerId, websiteId);
+  return { task: concurrent ? await taskView(userId, concurrent) : null };
 }
 
 async function conflict(userId: string, id: string): Promise<never> {
@@ -499,6 +605,12 @@ export async function reportResult(userId: string, id: string, body: any) {
   const lastError = strOrNull(body?.last_error, 4000);
   const failed = !(FINAL as readonly string[]).includes(status);
   const reason = body?.reason ?? null;
+  if (failed && reason === null)
+    throw new BacklinkError(
+      'needs_user, blocked and skipped require reason; use other only when no specific reason applies'
+    );
+  if (!failed && reason !== null)
+    throw new BacklinkError('Successful results must have reason=null');
   if (reason !== null && !oneOf(reason, FAILURE_REASONS))
     throw new BacklinkError(
       `reason must be one of: ${FAILURE_REASONS.join(', ')}`
@@ -521,35 +633,56 @@ export async function reportResult(userId: string, id: string, body: any) {
     submittedAt = given && !isNaN(given.getTime()) ? given : new Date();
   }
 
-  const [row]: WebsiteBacklink[] = await db()
-    .update(websiteBacklink)
-    .set({
-      operationStatus: status,
-      resultUrl,
-      proof,
-      needsUser: status === 'needs_user' ? needsUser : null,
-      failureReason: failed ? (reason ?? 'other') : null,
-      lastError,
-      submittedAt,
-      leaseExpiresAt: null,
-      ...(status === 'live' ? { linkStatus: 'valid' } : {}),
-    })
-    .where(
-      and(
-        eq(websiteBacklink.id, id),
-        eq(websiteBacklink.userId, userId),
-        eq(websiteBacklink.operationStatus, 'in_progress'),
-        eq(websiteBacklink.claimedBy, workerId),
-        eq(websiteBacklink.leaseId, leaseId)
-      )
-    )
-    .returning();
-  if (row) {
-    if (row.backlinkId) {
-      if (submittedAt) await markProven(userId, row.backlinkId);
-      else if (reason) await applyFailureReason(userId, row.backlinkId, reason);
-    }
-    return { id: row.id, status: row.operationStatus };
+  const previous = await recordOf(userId, id);
+  const claimed = and(
+    eq(websiteBacklink.id, id),
+    eq(websiteBacklink.userId, userId),
+    eq(websiteBacklink.operationStatus, 'in_progress'),
+    eq(websiteBacklink.claimedBy, workerId),
+    eq(websiteBacklink.leaseId, leaseId),
+    gt(websiteBacklink.leaseExpiresAt, new Date())
+  )!;
+  try {
+    await atomic((q) => [
+      guard({
+        table: user,
+        column: 'id',
+        where: eq(user.id, userId),
+        require: sql`1 = 1`,
+        message: 'Result lock',
+      }),
+      guard({
+        table: user,
+        column: 'id',
+        where: eq(user.id, userId),
+        require: sql`exists (select 1 from ${websiteBacklink} where ${claimed})`,
+        message: 'Lease or status conflict',
+      }),
+      q
+        .update(websiteBacklink)
+        .set({
+          operationStatus: status,
+          resultUrl,
+          proof,
+          needsUser: status === 'needs_user' ? needsUser : null,
+          failureReason: failed ? reason : null,
+          lastError,
+          submittedAt,
+          leaseExpiresAt: null,
+          ...(status === 'live' ? { linkStatus: 'valid' } : {}),
+        })
+        .where(
+          and(eq(websiteBacklink.id, id), eq(websiteBacklink.userId, userId))
+        ),
+      previous.backlinkId &&
+        (status === 'submitted' || status === 'live'
+          ? planMarkProven(q, userId, previous.backlinkId)
+          : reason &&
+            planFailureReason(q, userId, previous.backlinkId, reason)),
+    ]);
+    return { id, status };
+  } catch (error) {
+    if (!(error instanceof AtomicGuardError)) throw error;
   }
 
   // A retry of the same report after it already went through is fine.
@@ -557,7 +690,14 @@ export async function reportResult(userId: string, id: string, body: any) {
   if (
     current.claimedBy === workerId &&
     current.leaseId === leaseId &&
-    current.operationStatus === status
+    current.operationStatus === status &&
+    current.resultUrl === resultUrl &&
+    current.proof === proof &&
+    current.needsUser === (status === 'needs_user' ? needsUser : null) &&
+    current.lastError === lastError &&
+    current.failureReason === reason &&
+    (!body?.submitted_at ||
+      current.submittedAt?.getTime() === submittedAt?.getTime())
   )
     return { id: current.id, status: current.operationStatus };
   return conflict(userId, id);

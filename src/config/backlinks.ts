@@ -76,8 +76,8 @@ export const PROGRESS_BUCKETS: Record<
  */
 export const FAILURE_REASONS = [
   'paid', // only a paid plan is available → entry marked paid
-  'captcha', // CAPTCHA / bot check stops automation → entry turned off
-  'forbidden', // the site forbids this kind of submission → entry turned off
+  'captcha', // CAPTCHA / bot check blocks this attempt only
+  'forbidden', // the site forbids this product or kind of submission
   'reciprocal', // needs a badge or link back first
   'account', // login, signup, password or account problem
   'email_verify', // verification email never arrived
@@ -85,6 +85,8 @@ export const FAILURE_REASONS = [
   'queue_full', // free slots or launch queue full
   'site_down', // dead, parked, WAF, unreachable
   'no_entry', // no submission form or entry point
+  'lease_expired', // outcome must be verified before retry
+  'result_unknown', // result/receipt could not be confirmed
   'other',
 ] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];

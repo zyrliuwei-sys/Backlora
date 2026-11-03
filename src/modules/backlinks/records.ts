@@ -38,6 +38,7 @@ import { getUuid } from '@/lib/hash';
 
 import {
   ensureEntriesForUrls,
+  getVisibleBacklink,
   resolveSet,
   type LibraryScope,
   type SetSpec,
@@ -270,6 +271,8 @@ function recordFields(body: any) {
   if (body.operationStatus !== undefined) {
     if (!oneOf(body.operationStatus, OPERATION_STATUSES))
       throw new BacklinkError('Invalid operation status');
+    if (body.operationStatus === 'in_progress')
+      throw new BacklinkError('In-progress status requires an agent lease');
     set.operationStatus = body.operationStatus;
   }
   if (body.linkStatus !== undefined) {
@@ -324,6 +327,8 @@ export async function createRecord(userId: string, body: any) {
   });
   if (!set.targetUrl) throw new BacklinkError('Target URL is required');
   const backlinkId = strOrNull(body?.backlinkId, 100);
+  if (backlinkId && !(await getVisibleBacklink(userId, backlinkId)))
+    throw new BacklinkError('Backlink not found', 404);
   try {
     const [row]: WebsiteBacklink[] = await db()
       .insert(websiteBacklink)
@@ -350,6 +355,36 @@ export async function createRecord(userId: string, body: any) {
       throw new BacklinkError('This website already has a record for that URL');
     throw e;
   }
+}
+
+/** Requeue only unfinished attempts. Preserve evidence so the worker checks for duplicates. */
+export async function retryRecords(userId: string, ids: string[]) {
+  let updated = 0;
+  for (const part of chunk([...new Set(ids)], IN_CHUNK)) {
+    const rows = await db()
+      .update(websiteBacklink)
+      .set({
+        operationStatus: 'pending',
+        claimedBy: null,
+        leaseId: null,
+        leaseExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(websiteBacklink.userId, userId),
+          inArray(websiteBacklink.id, part),
+          inArray(websiteBacklink.operationStatus, [
+            'needs_user',
+            'blocked',
+            'skipped',
+          ]),
+          sql`exists (select 1 from ${website} where ${website.id} = ${websiteBacklink.websiteId} and ${website.userId} = ${userId} and ${website.deletedAt} is null and ${website.status} = 'enabled' and ${website.autoBacklinkEnabled} = 1)`
+        )
+      )
+      .returning({ id: websiteBacklink.id });
+    updated += rows.length;
+  }
+  return { updated };
 }
 
 export async function editRecord(userId: string, id: string, body: any) {

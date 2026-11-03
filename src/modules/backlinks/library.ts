@@ -708,8 +708,8 @@ export async function importToMine(
  * A submission went through: the user's own entry is evidently free to submit,
  * so it joins 推荐. Public entries are left to admins.
  */
-export async function markProven(userId: string, backlinkId: string) {
-  await db()
+export function planMarkProven(q: any, userId: string, backlinkId: string) {
+  return q
     .update(backlink)
     .set({
       status: 'approved',
@@ -728,9 +728,19 @@ export async function markProven(userId: string, backlinkId: string) {
 
 /**
  * What a failure says about the user's own entry: paid-only sites leave 推荐,
- * CAPTCHA walls and forbidden sites are turned off so no website retries them.
+ * CAPTCHA and product-specific rejection never disable other websites.
  */
 export async function applyFailureReason(
+  userId: string,
+  backlinkId: string,
+  reason: FailureReason
+) {
+  const step = planFailureReason(db(), userId, backlinkId, reason);
+  if (step) await step;
+}
+
+export function planFailureReason(
+  q: any,
   userId: string,
   backlinkId: string,
   reason: FailureReason
@@ -741,17 +751,8 @@ export async function applyFailureReason(
     eq(backlink.visibility, 'private')
   );
   if (reason === 'paid')
-    await db().update(backlink).set({ costType: 'paid' }).where(own);
-  if (reason === 'captcha' || reason === 'forbidden')
-    await db()
-      .update(userBacklink)
-      .set({ enabled: false })
-      .where(
-        and(
-          eq(userBacklink.userId, userId),
-          eq(userBacklink.backlinkId, backlinkId)
-        )
-      );
+    return q.update(backlink).set({ costType: 'paid' }).where(own);
+  return false;
 }
 
 /** Personal notes for a set of entries (task `library_notes`). */
