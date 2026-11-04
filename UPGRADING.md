@@ -46,6 +46,17 @@ exports, permission codes, and behavior that changes for end users.
 
 ---
 
+## 2026-11-04: Distinguish product signup from site badge access
+
+- Generated prompts now explicitly forbid reusing external-directory registration
+  credentials to obtain administrator access on the owned site. Signup, forwarded
+  email and verification codes do not grant administrative permissions.
+- Official reciprocal requirements are checked against their source; a different
+  link domain alone does not require a new authorization. Recopy old prompts.
+- PosterSize must receive the badge endpoint/footer upgrade and a dedicated
+  connection before the bridge can be used. An install page URL alone is not
+  a configured credential. No schema migration is required.
+
 ## 2026-11-03: Dedicated badge automation connection
 
 - Websites can connect a dedicated add/update-only badge credential in their edit
