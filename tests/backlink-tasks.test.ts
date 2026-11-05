@@ -475,3 +475,37 @@ test('paid evidence from a public target filters that user only, with explicit o
     'unknown'
   );
 });
+
+for (const manual of [false, true]) {
+  test(`website queue excludes paid history without excluding unrelated targets (${manual ? 'manual' : 'catalog'})`, async () => {
+    const id = await fixture('unknown');
+    const targetUrl = `https://directory.example.test/${id}/paid-target`;
+    await record(id, 'paid-history', 'needs_user', {
+      websiteId: `${id}-other`,
+      targetUrl,
+      failureReason: 'paid',
+    });
+    await record(id, 'paid-candidate', 'pending', {
+      backlinkId: manual ? null : id,
+      targetUrl,
+      createdAt: new Date(0),
+    });
+    await record(id, 'free-candidate', 'pending', {
+      backlinkId: manual ? null : id,
+    });
+    const result = await claim(id, { data_source: 'website' });
+    assert.equal(result.task?.id, `${id}-free-candidate`);
+    const [paid] = await db()
+      .select()
+      .from(websiteBacklink)
+      .where(eq(websiteBacklink.id, `${id}-paid-candidate`));
+    assert.equal(paid.operationStatus, 'pending');
+    assert.equal(paid.attemptCount, 0);
+    const optIn = await claim(id, {
+      data_source: 'website',
+      worker_id: `${id}-paid-worker`,
+      include_paid: true,
+    });
+    assert.equal(optIn.task?.id, `${id}-paid-candidate`);
+  });
+}

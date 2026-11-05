@@ -132,6 +132,7 @@ description: Backlora 外链提交任务接口：网站资料、任务领取、�
 
 - 所有路径都相对于 BASE_URL（${baseUrl}）。
 - 每个请求都带 \`Authorization: Bearer <API_KEY>\`；发送 JSON 时加 \`Content-Type: application/json\`。
+- 命令行 HTTP 客户端同时设置 \`User-Agent: Backlora-Agent/1.0\` 和 \`Accept: application/json\`。不要使用空 User-Agent 或 Python urllib 默认值；本站边缘可能返回 403 和 \`error code: 1010\`。这不是 API Key 失效，先设置上述客户端标识并重试一次；浏览器请求保留浏览器自己的 User-Agent。持续被拒绝时记录响应并停止，不反复更换标识。
 - 成功响应为 \`{ "code": 0, "message": "ok", "data": ... }\`；失败时 code 为 -1，原因在 message，并配合下文的 HTTP 状态码。
 - API Key 只发往 BASE_URL。不要在日志、结果或证据中写入 API Key、密码、Cookie、备份码或验证码。
 

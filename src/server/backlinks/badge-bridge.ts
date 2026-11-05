@@ -1,4 +1,5 @@
 import { envConfigs } from '@/config';
+import { retryBadgeBlockedRecords } from '@/modules/backlinks/records';
 import { authorizeTaskBadge } from '@/modules/backlinks/tasks';
 import {
   badgeConnectionKey,
@@ -140,7 +141,11 @@ export async function connectBadges(
     { [badgeConnectionKey(id)]: JSON.stringify(connection) },
     { internal: true }
   );
-  return badgeConnectionStatus(userId, id);
+  const requeuedTasks = await retryBadgeBlockedRecords(userId, id);
+  return {
+    ...(await badgeConnectionStatus(userId, id)),
+    requeued_tasks: requeuedTasks,
+  };
 }
 
 export async function disconnectBadges(userId: string, id: string) {

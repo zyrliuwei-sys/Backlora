@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { eq } from 'drizzle-orm';
 
+import type { WebsiteBacklink } from '../src/config/db/schema';
+
 const directory = await mkdtemp(join(tmpdir(), 'badge-bridge-'));
 Object.assign(process.env, {
   NODE_ENV: 'test',
@@ -61,6 +63,8 @@ const { badgeConnectionKey } =
 const { getAdminConfigs, getCustomConfigs, replaceCustomConfigs, saveConfigs } =
   await import('../src/modules/config/service');
 const { startTask } = await import('../src/modules/backlinks/tasks');
+const { retryBadgeBlockedRecords } =
+  await import('../src/modules/backlinks/records');
 const { parseOfficialBadge, badgeIsPublic } =
   await import('../src/server/backlinks/badge-markup');
 const { allowedBadgeOrigin } = await import('../src/lib/badge-bridge-policy');
@@ -388,6 +392,111 @@ test('API rejects foreign origins and malformed bodies and returns recoverable f
   });
   assert.equal(hidden.status, 500);
   assert.ok(!(await hidden.text()).includes(token));
+});
+
+test('verified connection requeues only its reciprocal blockers and preserves prior submission evidence', async () => {
+  const { id } = await fixture();
+  const proof =
+    'Listing already received; finish the required badge check without resubmitting.';
+  await db()
+    .update(s.websiteBacklink)
+    .set({
+      operationStatus: 'needs_user',
+      failureReason: 'reciprocal',
+      proof,
+      resultUrl: 'https://directory.example.test/review',
+      needsUser: 'Old badge access blocker',
+      leaseExpiresAt: null,
+    })
+    .where(eq(s.websiteBacklink.id, id));
+  for (const [suffix, status, reason] of [
+    ['captcha', 'needs_user', 'captcha'],
+    ['submitted', 'submitted', 'reciprocal'],
+    ['running', 'in_progress', 'reciprocal'],
+  ] as const) {
+    await db()
+      .insert(s.websiteBacklink)
+      .values({
+        id: `${id}-${suffix}`,
+        userId: id,
+        websiteId: id,
+        sourceUrl: 'https://product.example.test',
+        sourceDomain: 'product.example.test',
+        targetUrl: `https://${suffix}.example.test/`,
+        targetDomain: `${suffix}.example.test`,
+        operationStatus: status,
+        failureReason: reason,
+      });
+  }
+  await assert.rejects(
+    connectBadges(id, id, token, async () => new Response('', { status: 503 }))
+  );
+  assert.equal(
+    (
+      await db()
+        .select()
+        .from(s.websiteBacklink)
+        .where(eq(s.websiteBacklink.id, id))
+    )[0].operationStatus,
+    'needs_user'
+  );
+  const result = await connectBadges(id, id, token, remote().fetcher);
+  assert.equal(result.requeued_tasks, 1);
+  const rows: WebsiteBacklink[] = await db()
+    .select()
+    .from(s.websiteBacklink)
+    .where(eq(s.websiteBacklink.websiteId, id));
+  const recovered = rows.find((r) => r.id === id)!;
+  assert.equal(recovered.operationStatus, 'pending');
+  assert.equal(recovered.proof, proof);
+  assert.equal(recovered.resultUrl, 'https://directory.example.test/review');
+  assert.equal(recovered.needsUser, 'Old badge access blocker');
+  assert.equal(recovered.claimedBy, null);
+  assert.equal(recovered.leaseId, null);
+  assert.equal(
+    rows.find((r) => r.id === `${id}-captcha`)!.operationStatus,
+    'needs_user'
+  );
+  assert.equal(
+    rows.find((r) => r.id === `${id}-submitted`)!.operationStatus,
+    'submitted'
+  );
+  assert.equal(
+    rows.find((r) => r.id === `${id}-running`)!.operationStatus,
+    'in_progress'
+  );
+});
+
+test('badge recovery is ownership-scoped, respects disabled projects, and concurrent calls recover once', async () => {
+  const { id } = await fixture();
+  const other = await fixture();
+  await db()
+    .update(s.websiteBacklink)
+    .set({
+      operationStatus: 'needs_user',
+      failureReason: 'reciprocal',
+      leaseExpiresAt: null,
+    })
+    .where(eq(s.websiteBacklink.id, id));
+  assert.equal(await retryBadgeBlockedRecords(other.id, id), 0);
+  await db()
+    .update(s.website)
+    .set({ autoBacklinkEnabled: false })
+    .where(eq(s.website.id, id));
+  assert.equal(await retryBadgeBlockedRecords(id, id), 0);
+  await db()
+    .update(s.website)
+    .set({ autoBacklinkEnabled: true })
+    .where(eq(s.website.id, id));
+  const counts = await Promise.all([
+    retryBadgeBlockedRecords(id, id),
+    retryBadgeBlockedRecords(id, id),
+  ]);
+  assert.equal(
+    counts.reduce((a, b) => a + b, 0),
+    1
+  );
+  assert.equal(await retryBadgeBlockedRecords(id, id), 0);
 });
 
 test('credential generator creates a private file without printing secrets or overwriting credentials', async () => {

@@ -255,7 +255,10 @@ function sourceConditions(userId: string, source: DataSource): SQL[] {
  * evidence without changing the shared catalog or other users' eligibility.
  */
 function notPreviouslyPaid(userId: string, target: SQL) {
-  return sql`not exists (select 1 from ${websiteBacklink} paid where paid.user_id = ${userId} and paid.target_url = ${target} and paid.failure_reason = 'paid')`;
+  // Build the user's paid-target set once. A correlated NOT EXISTS scans
+  // their history for every candidate and exceeds D1's CPU limit at scale.
+  // target_url is NOT NULL, so NOT IN keeps the same exclusion semantics.
+  return sql`${target} not in (select paid.target_url from ${websiteBacklink} paid where paid.user_id = ${userId} and paid.failure_reason = 'paid')`;
 }
 
 /** Claim one existing pending record of the website. */

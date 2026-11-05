@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 import { AddBacklinksPanel } from '../-add-backlinks';
+import { BadgeConnection } from '../-badge-connection';
 import { CodexDialog } from '../-codex-dialog';
 import { ProfileImportDialog } from '../-profile-import';
 import { PageHeader, type Website } from '../-shared';
@@ -188,6 +189,7 @@ function NewWebsitePage() {
       {step === 3 && siteId && (
         <Card>
           <CardContent className="space-y-4">
+            <BadgeConnection websiteId={siteId} disabled={false} />
             <div>
               <div className="font-semibold">
                 {m['dash.wizard.codex_title']()}

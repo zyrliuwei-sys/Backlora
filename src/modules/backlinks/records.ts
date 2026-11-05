@@ -387,6 +387,34 @@ export async function retryRecords(userId: string, ids: string[]) {
   return { updated };
 }
 
+/** A verified badge connection resolves only reciprocal-link blockers.
+ * Preserve all evidence so the agent resumes drafts or verifies existing listings.
+ */
+export async function retryBadgeBlockedRecords(
+  userId: string,
+  websiteId: string
+) {
+  const rows = await db()
+    .update(websiteBacklink)
+    .set({
+      operationStatus: 'pending',
+      claimedBy: null,
+      leaseId: null,
+      leaseExpiresAt: null,
+    })
+    .where(
+      and(
+        eq(websiteBacklink.userId, userId),
+        eq(websiteBacklink.websiteId, websiteId),
+        eq(websiteBacklink.failureReason, 'reciprocal'),
+        inArray(websiteBacklink.operationStatus, ['needs_user', 'blocked']),
+        sql`exists (select 1 from ${website} where ${website.id} = ${websiteBacklink.websiteId} and ${website.userId} = ${userId} and ${website.deletedAt} is null and ${website.status} = 'enabled' and ${website.autoBacklinkEnabled} = 1)`
+      )
+    )
+    .returning({ id: websiteBacklink.id });
+  return rows.length;
+}
+
 export async function editRecord(userId: string, id: string, body: any) {
   const set = manualStatusSideEffects(recordFields(body));
   if (!Object.keys(set).length) throw new BacklinkError('Nothing to update');

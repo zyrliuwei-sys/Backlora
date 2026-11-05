@@ -4,6 +4,32 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-05 — Task claiming at scale and new-project setup
+
+Deploy Backlora to replace the per-candidate paid-history scan with a single
+user-scoped exclusion set. The old query could exceed D1's CPU limit and make
+`/start` time out or return 500 on a large queue. Paid exclusions and lease
+authorization are unchanged. No schema migration is required.
+
+The new-website wizard now includes the badge-connection control before the
+generated agent instructions. Adding a website still requires its site-side
+integration, a dedicated credential, a permitted destination, mailbox access,
+and an activated runner; creating a profile does not provision these resources.
+
+## 2026-11-05 — Resume badge-blocked tasks after connection
+
+Successful badge connection now returns `requeued_tasks` and resumes only the
+owned, enabled website's `needs_user`/`blocked` records whose failure reason is
+`reciprocal`. Evidence, review URLs and previous blocker notes are retained.
+Other failure reasons, active leases and completed records are not reset.
+Deploy the Backlora update before connecting projects. No schema migration is
+required. Previously connected projects may reconnect once to recover old tasks.
+
+Agent prompts now specify a named HTTP User-Agent for CLI requests. Recopy the
+generated prompt into existing jobs; the production edge rejects Python urllib's
+default User-Agent with 403 / 1010 before API-key validation. No key rotation is
+needed for that response.
+
 ## How to upgrade (every time)
 
 1. **Find the baseline.** The last template commit the project took. Check

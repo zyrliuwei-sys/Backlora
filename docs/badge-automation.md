@@ -22,18 +22,40 @@ No administrator browser session is needed after the one-time connection.
 3. On Backlora, configure `CONFIG_ENCRYPTION_KEY` and set the server environment
    `BACKLINK_BADGE_ALLOWED_HOSTS` to the exact comma-separated hostnames being connected.
    No wildcard, URL scheme, port or path. An empty allowlist disables the bridge.
-4. In the owned website's edit page, use **Automatic badge installation** to enter
+4. In the new-website wizard's last step or the owned website's edit page, use
+   **Automatic badge installation** to enter
    the file's `token` once. Backlora checks the site's capability and saves the
    credential encrypted with its destination. API agents can read readiness but
    cannot retrieve, change or disconnect the secret.
+   A successful connection requeues this website's unfinished reciprocal-link
+   blockers automatically. Other failure reasons, active leases and completed
+   submissions are left alone. Prior evidence and review URLs remain attached,
+   so the agent checks existing listings and resumes drafts before submitting.
 5. Recopy the generated agent prompt into existing scheduled runs. Old prompt
    copies do not update themselves. Keep credential files in private storage or
    delete them after secure provisioning; never include them in logs or a commit.
 
 No schema migration is needed. The existing encrypted config store is used.
 
+## Future projects
+
+The bridge and generated agent instructions work for every website ID; they are
+not hard-coded to the original 21 projects. A newly registered website does not
+automatically gain a site endpoint, server credential, allowed destination,
+mail-forwarding rule, mailbox session or scheduled job. Complete the one-time
+activation above, save that project's email/password/mailbox, and activate its
+runner. New prompt copies include the email and badge workflow automatically;
+existing copied schedules retain their own prompts until explicitly updated.
+Once connected, each badge is saved as website data, without editing source or
+deploying again. Third-party identity checks and directory acceptance still
+depend on the target site.
+
 ## Agent flow
 
+- CLI HTTP requests should identify themselves with `User-Agent: Backlora-Agent/1.0`
+  and `Accept: application/json`. The live edge rejects Python urllib's default
+  User-Agent with HTTP 403 / `error code: 1010`; that response is not an API-key
+  validation failure. Browser requests retain their browser User-Agent.
 - Read `GET /api/websites/{website_id}/badge-connection` with the Backlora API key.
 - When `ready=true`, send the original official HTML to
   `POST /api/v1/backlink-tasks/{task_id}/badge` with `worker_id`, `lease_id`, `html`.
