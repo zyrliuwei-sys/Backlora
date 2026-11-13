@@ -31,6 +31,7 @@
     "test:atomic:pg": "TSX_TSCONFIG_PATH=tests/tsconfig.pg.json node --import tsx --test tests/atomic.test.ts",
     "test:backlinks": "node --import tsx --test tests/backlink-tasks.test.ts",
     "test:backlinks:d1": "BACKLINK_D1=1 node --import tsx --test tests/backlink-tasks.test.ts",
+    "test:badge-copy": "node --test tests/badge-embed-capture.test.mjs",
     "test:badge-bridge": "node --import tsx --test tests/badge-bridge.test.ts",
     "test:badge-bridge:d1": "BACKLINK_D1=1 node --import tsx --test tests/badge-bridge.test.ts"
   },

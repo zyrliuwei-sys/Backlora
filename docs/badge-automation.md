@@ -52,6 +52,14 @@ depend on the target site.
 
 ## Agent flow
 
+- Read official badge HTML from its code field or `data-clipboard-text` first.
+  Never call browser or system clipboard-read APIs. For a Copy-only button,
+  import `/agent/badge-embed.mjs` from Backlora in the agent's Node context, then
+  run `page.evaluate(captureBadgeEmbed, { buttonText: '<observed button label>' })`.
+  The helper captures the selected button's outgoing text without calling the
+  native clipboard and restores the method on success/error/timeout. It does
+  not grant permissions or submit the form. Use `embed.html` unchanged with the
+  badge API. Already handed-off pages still require the user to return control.
 - CLI HTTP requests should identify themselves with `User-Agent: Backlora-Agent/1.0`
   and `Accept: application/json`. The live edge rejects Python urllib's default
   User-Agent with HTTP 403 / `error code: 1010`; that response is not an API-key

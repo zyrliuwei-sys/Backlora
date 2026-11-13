@@ -41,6 +41,27 @@ const CONTAINERS: Record<AutomationContainer, string[]> = {
   ],
 };
 
+/** Also applied to existing copied schedules without replacing their settings. */
+export function buildBadgeCopyInstructions(baseUrl: string) {
+  const helperUrl = new URL('/agent/badge-embed.mjs', baseUrl).href;
+  return `【徽章代码获取：无需剪贴板权限】
+先从官方页面的代码框、textarea、pre/code 或 data-clipboard-text 读取原始徽章 HTML。不要把“复制原始代码”理解为必须读系统剪贴板。禁止调用 navigator.clipboard.readText()/read()、系统剪贴板命令或通过修改浏览器权限来获取代码；这会触发权限弹窗并让整批任务交给用户。
+只有官方 Copy Embed/复制徽章按钮时，在点击之前使用以下工具捕获这个按钮本次要复制的 HTML。它不读写系统剪贴板，不授予权限，不发送提交请求，并在成功、失败或超时后恢复页面方法。先用 snapshot 确认按钮文字；将 buttonText 替换为实际观察到的唯一按钮文字。复用当前任务空间和 page，不新建空间。以下代码在 ego-browser 的 Node 脚本中运行：
+\`\`\`js
+const response = await fetch(${JSON.stringify(helperUrl)}, {
+  redirect: 'error',
+  headers: { 'User-Agent': 'Backlora-Agent/1.0', Accept: 'text/javascript' },
+});
+if (!response.ok) throw new Error('Badge capture helper unavailable: ' + response.status);
+const { captureBadgeEmbed } = await import(
+  'data:text/javascript;base64,' + Buffer.from(await response.text()).toString('base64')
+);
+const embed = await page.evaluate(captureBadgeEmbed, { buttonText: 'Copy Dark Embed' });
+// 将 embed.html 原样传给当前租约的 /badge 接口；embed.source_url 是要求来源。
+\`\`\`
+不要先点 Copy 再读剪贴板。工具不支持的旧式复制按钮，可以只读检查官方代码框、按钮属性或当前页面已加载的公开脚本；不得猜测徽章 href、图片地址或验证属性。获取失败应记录具体代码获取错误，不能声称安装失败或要求人工完成整套安装。若浏览器已经出现权限弹窗或已交给用户，必须停止浏览器操作等待用户处理，不能换空间、改权限或自动夺回控制；本工具只用于尚未发生交接的正常页面。`;
+}
+
 export function buildPrimaryPrompt(o: {
   baseUrl: string;
   apiKey: string;
@@ -87,6 +108,8 @@ ${params.join('\n')}
 
 【浏览器】
 ${browser}
+
+${buildBadgeCopyInstructions(o.baseUrl)}
 
 【准备】
 1. 先通读末尾的接口文档。以 start 返回的 product 作为唯一资料来源，可以据此撰写、翻译或改写文案，但不得编造事实。

@@ -4,6 +4,17 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-12 — Acquire official badge HTML without clipboard permission
+
+Deploy Backlora's public `agent/badge-embed.mjs` helper and updated prompt
+generator. Update existing copied schedules too: their prompts do not refresh
+automatically. Never read the system clipboard to retrieve copied badge code.
+The helper captures only a selected official Copy button's outgoing text and
+restores the page method afterward; no browser permission is granted. Actual
+browser handoffs remain hard stops. Run `pnpm test:badge-copy` to verify capture,
+cleanup, timeouts and refusal of submission buttons. No schema migration or
+site-side deployment is needed.
+
 ## 2026-11-05 — Task claiming at scale and new-project setup
 
 Deploy Backlora to replace the per-candidate paid-history scan with a single
