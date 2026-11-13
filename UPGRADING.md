@@ -4,6 +4,18 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-13 — Include badge capture in every new agent setup
+
+The new-project wizard and existing-project dialog share the final instruction
+composer. It always appends the current badge procedure through the API contract,
+including when the editable primary prompt is replaced with an older template.
+The standalone `/skill/codex.md` endpoint now includes the same procedure.
+Newly copied jobs include it automatically; saved jobs are still independent
+copies. Run `pnpm test:agent-instructions` and `pnpm test:badge-copy` before
+publishing changes to these entry points. `cf:deploy` runs both suites before
+building or publishing, including the GitHub deployment workflow. No schema or
+site-side changes.
+
 ## 2026-11-12 — Acquire official badge HTML without clipboard permission
 
 Deploy Backlora's public `agent/badge-embed.mjs` helper and updated prompt

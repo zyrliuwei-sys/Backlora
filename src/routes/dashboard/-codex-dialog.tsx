@@ -34,7 +34,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import {
-  buildApiDoc,
+  buildAgentInstructions,
   buildPrimaryPrompt,
   DEFAULT_CUSTOM_PROMPT,
   OLD_CUSTOM_PROMPTS,
@@ -227,9 +227,7 @@ export function CodexDialog({
   const blocked = !!readiness && readiness.blocking_fields.length > 0;
 
   async function copy() {
-    const text = [primary.trim(), custom.trim(), buildApiDoc(baseUrl)]
-      .filter(Boolean)
-      .join('\n\n');
+    const text = buildAgentInstructions({ baseUrl, primary, custom });
     try {
       await navigator.clipboard.writeText(text);
       toast.success(m['dash.codex.copied']());

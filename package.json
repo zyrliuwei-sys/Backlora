@@ -10,7 +10,7 @@
     "start": "node .output/server/index.mjs",
     "precf:build": "node scripts/db-setup.mjs",
     "cf:build": "NITRO_PRESET=cloudflare_module vite build",
-    "cf:deploy": "sh -c 'set -a && [ -f .env.production ] && . ./.env.production; set +a && pnpm cf:build && exec wrangler deploy'",
+    "cf:deploy": "pnpm test:agent-instructions && pnpm test:badge-copy && sh -c 'set -a && [ -f .env.production ] && . ./.env.production; set +a && pnpm cf:build && exec wrangler deploy'",
     "postinstall": "mkdir -p data && (test -f src/config/db/schema.ts || node scripts/db-setup.mjs)",
     "db:setup": "node scripts/db-setup.mjs",
     "db:push": "tsx scripts/with-env.ts drizzle-kit push --config=drizzle.config.ts",
@@ -32,6 +32,7 @@
     "test:backlinks": "node --import tsx --test tests/backlink-tasks.test.ts",
     "test:backlinks:d1": "BACKLINK_D1=1 node --import tsx --test tests/backlink-tasks.test.ts",
     "test:badge-copy": "node --test tests/badge-embed-capture.test.mjs",
+    "test:agent-instructions": "node --import tsx --test tests/agent-instructions.test.ts",
     "test:badge-bridge": "node --import tsx --test tests/badge-bridge.test.ts",
     "test:badge-bridge:d1": "BACKLINK_D1=1 node --import tsx --test tests/badge-bridge.test.ts"
   },

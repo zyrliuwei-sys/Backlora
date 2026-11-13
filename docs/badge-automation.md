@@ -52,6 +52,13 @@ depend on the target site.
 
 ## Agent flow
 
+New projects use the same instruction composer as existing projects. The final
+copied instructions always include the current badge capture procedure in their
+API contract, even if the primary prompt was edited or replaced. The standalone
+`/skill/codex.md` endpoint includes it too. Existing scheduled jobs retain their
+copied instructions until updated. Verify these paths with
+`pnpm test:agent-instructions`.
+
 - Read official badge HTML from its code field or `data-clipboard-text` first.
   Never call browser or system clipboard-read APIs. For a Copy-only button,
   import `/agent/badge-embed.mjs` from Backlora in the agent's Node context, then

@@ -43,7 +43,10 @@ const CONTAINERS: Record<AutomationContainer, string[]> = {
 
 /** Also applied to existing copied schedules without replacing their settings. */
 export function buildBadgeCopyInstructions(baseUrl: string) {
-  const helperUrl = new URL('/agent/badge-embed.mjs', baseUrl).href;
+  // The dialog also renders on the server, before window.location is available.
+  const helperUrl = baseUrl
+    ? new URL('/agent/badge-embed.mjs', baseUrl).href
+    : '/agent/badge-embed.mjs';
   return `【徽章代码获取：无需剪贴板权限】
 先从官方页面的代码框、textarea、pre/code 或 data-clipboard-text 读取原始徽章 HTML。不要把“复制原始代码”理解为必须读系统剪贴板。禁止调用 navigator.clipboard.readText()/read()、系统剪贴板命令或通过修改浏览器权限来获取代码；这会触发权限弹窗并让整批任务交给用户。
 只有官方 Copy Embed/复制徽章按钮时，在点击之前使用以下工具捕获这个按钮本次要复制的 HTML。它不读写系统剪贴板，不授予权限，不发送提交请求，并在成功、失败或超时后恢复页面方法。先用 snapshot 确认按钮文字；将 buttonText 替换为实际观察到的唯一按钮文字。复用当前任务空间和 page，不新建空间。以下代码在 ego-browser 的 Node 脚本中运行：
@@ -139,6 +142,27 @@ ${categoryLine}
 1. product.links 有值时随机选一项：用它的 name 作为评论正文里的自然锚文本、url 作为链接目标；表单的 name、website 字段也分别填这一项的 name、url。没有 links 时，name、website 字段填产品名称和产品网址。website 字段始终填完整网址（带 https://）。
 2. 第一次提交时，在评论正文中放一个标准的锚文本链接。
 3. 仅在明确被拒绝、确认未收件后才允许修正再试；超时或结果不明先只读核实，不得重复发评论。修正内容需与文章相关，遵守目标站规则。`;
+}
+
+/** Keep the current badge procedure in the final, non-editable API contract.
+ * Older or manually edited primary prompts must not omit it from copied jobs.
+ */
+export function buildAgentInstructions({
+  baseUrl,
+  primary,
+  custom,
+}: {
+  baseUrl: string;
+  primary: string;
+  custom: string;
+}) {
+  return [
+    primary.replace(buildBadgeCopyInstructions(baseUrl), '').trim(),
+    custom.trim(),
+    buildApiDoc(baseUrl),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 export function buildApiDoc(baseUrl: string) {
@@ -239,6 +263,8 @@ GET /api/v1/backlink-tasks/{task_id}
 用于中断或租约冲突后核对状态，只返回已保存的结果，不会去外站核实。恢复未完成的任务前，先确认是否已经提交过；已结束的任务不要再执行。过期的租约不能复用，过期任务会在查询或下一次 start 时转为 needs_user，不能回传新的结果。
 
 ## 自动安装徽章
+
+${buildBadgeCopyInstructions(baseUrl)}
 
 GET /api/websites/{website_id}/badge-connection 返回 configured、ready、origin，不返回站点密钥。
 
