@@ -1,33 +1,13 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/core/db';
-import { config, website } from '@/config/db/schema';
+import { config } from '@/config/db/schema';
 import { decryptSecret, isEncryptedSecret } from '@/lib/crypto';
 
 export function badgeConnectionKey(websiteId: string) {
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(websiteId))
     throw new Error('Invalid website id');
   return `badge_connection_${websiteId}_secret`;
-}
-
-export async function ownedBadgeWebsite(userId: string, websiteId: string) {
-  const [row] = await db()
-    .select({
-      id: website.id,
-      url: website.url,
-      enabled: website.autoBacklinkEnabled,
-      status: website.status,
-    })
-    .from(website)
-    .where(
-      and(
-        eq(website.id, websiteId),
-        eq(website.userId, userId),
-        isNull(website.deletedAt)
-      )
-    )
-    .limit(1);
-  return row ?? null;
 }
 
 export type BadgeConnection = { version: 1; origin: string; token: string };

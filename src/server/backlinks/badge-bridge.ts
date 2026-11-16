@@ -1,9 +1,10 @@
 import { envConfigs } from '@/config';
 import { retryBadgeBlockedRecords } from '@/modules/backlinks/records';
+import { BacklinkError } from '@/modules/backlinks/shared';
 import { authorizeTaskBadge } from '@/modules/backlinks/tasks';
+import { requireWebsite } from '@/modules/backlinks/websites';
 import {
   badgeConnectionKey,
-  ownedBadgeWebsite,
   readBadgeConnection,
   type BadgeConnection,
 } from '@/modules/badge-connections/service';
@@ -20,9 +21,21 @@ import { badgeIsPublic, parseOfficialBadge } from './badge-markup';
 const integrationPath = '/api/integrations/footer-badges';
 
 async function owned(userId: string, id: string) {
-  const site = await ownedBadgeWebsite(userId, id);
-  if (!site) throw new BadgeBridgeError('website', 'Website not found', 404);
-  return site;
+  try {
+    // Keep badge preflight on the exact same ownership/soft-delete lookup as
+    // GET /api/websites/:id, so the two routes cannot drift apart.
+    const site = await requireWebsite(userId, id);
+    return {
+      id: site.id,
+      url: site.url,
+      enabled: site.autoBacklinkEnabled,
+      status: site.status,
+    };
+  } catch (error) {
+    if (error instanceof BacklinkError && error.status === 404)
+      throw new BadgeBridgeError('website', 'Website not found', 404);
+    throw error;
+  }
 }
 
 export async function badgeConnectionStatus(userId: string, id: string) {
