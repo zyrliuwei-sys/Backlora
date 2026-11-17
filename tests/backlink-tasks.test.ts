@@ -62,6 +62,7 @@ const {
 } = await import('../src/modules/backlinks/websites');
 const { DEFAULT_SUBMISSION_ACCOUNT } =
   await import('../src/config/submission-account');
+const { COMPANY_FOUNDED_YEAR_KEY } = await import('../src/config/backlinks');
 after(async () => {
   await disposeD1?.();
   await rm(directory, { recursive: true, force: true });
@@ -143,7 +144,7 @@ test('known paid targets are excluded by default, opt-in is explicit', async () 
   await assert.rejects(claim(id, { include_paid: 'false' }), /boolean/);
 });
 
-test('task mailbox identity is snapshotted and receive-only blockers are explicit', async () => {
+test('a historical support-email identity requires review without changing the shared login', async () => {
   const id = await fixture();
   await db()
     .update(website)
@@ -155,10 +156,24 @@ test('task mailbox identity is snapshotted and receive-only blockers are explici
       emailManagementUrl: 'https://mail.google.com/mail/u/0/#inbox',
     })
     .where(eq(website.id, id));
+  await record(id, 'legacy-email', 'pending', {
+    submissionEmail: 'support@product.example',
+    attemptCount: 1,
+  });
   const task = (await claim(id)).task!;
-  assert.equal(task.product.email, 'support@product.example');
+  assert.equal(task.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
   assert.equal(task.product.submission_email, 'support@product.example');
-  assert.equal(task.product.email_capability, 'receive_only');
+  assert.equal(task.product.email_capability, 'send_capable');
+  assert.equal(task.product.submission_identity_review_required, true);
+  assert.equal(task.account_policy.allow_logout, false);
+  assert.equal(
+    task.account_policy.login_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
+  assert.equal(
+    task.account_policy.previous_submission_email,
+    'support@product.example'
+  );
 
   await db()
     .update(website)
@@ -168,8 +183,8 @@ test('task mailbox identity is snapshotted and receive-only blockers are explici
     })
     .where(eq(website.id, id));
   const oldIdentity = (await getTask(id, task.id)).product;
-  assert.equal(oldIdentity.email, 'support@product.example');
-  assert.equal(oldIdentity.email_capability, 'unknown');
+  assert.equal(oldIdentity.email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(oldIdentity.email_capability, 'send_capable');
 
   const lease = { worker_id: `${id}-worker`, lease_id: task.lease_id };
   const parked = await reportResult(id, task.id, {
@@ -200,10 +215,16 @@ test('personal login and verification inbox stay separate from public contact ac
   const task = claims[0].task!;
   assert.equal(task.product.contact_email, 'support@product.example');
   assert.equal(task.product.contact_email_capability, 'receive_only');
-  assert.equal(task.product.submission_email, 'owner@gmail.com');
-  assert.equal(task.product.registration_email, 'owner@gmail.com');
-  assert.equal(task.product.email, 'owner@gmail.com');
-  assert.equal(task.product.verification_inbox_email, 'owner@gmail.com');
+  assert.equal(task.product.submission_email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(
+    task.product.registration_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
+  assert.equal(task.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(
+    task.product.verification_inbox_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
   assert.equal(task.product.email_capability, 'send_capable');
   assert.equal(task.product.registration_password, null);
   assert.equal(task.product.submission_identity_review_required, false);
@@ -220,7 +241,10 @@ test('personal login and verification inbox stay separate from public contact ac
     .where(eq(website.id, id));
   await retryRecords(id, [task.id]);
   const retried = (await claim(id)).task!;
-  assert.equal(retried.product.submission_email, 'owner@gmail.com');
+  assert.equal(
+    retried.product.submission_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
   assert.equal(retried.product.contact_email, 'support@product.example');
 });
 
@@ -232,7 +256,13 @@ test('existing and new projects share the default Gmail without sharing public c
     .where(eq(website.id, id));
   await db()
     .update(website)
-    .set({ email: 'hello@second.example' })
+    .set({
+      email: 'hello@second.example',
+      registrationEmail: 'support@second.example',
+      registrationEmailCapability: 'receive_only',
+      verificationInboxEmail: 'stale-inbox@example.test',
+      emailManagementUrl: 'https://mail.example.test/old',
+    })
     .where(eq(website.id, `${id}-other`));
   const first = productOf(await requireWebsite(id, id));
   const second = productOf(await requireWebsite(id, `${id}-other`));
@@ -257,8 +287,13 @@ test('existing and new projects share the default Gmail without sharing public c
   const fresh = await createWebsite(id, {
     url: 'https://third.example',
     shortDesc: 'New project',
+    ownerEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
   });
   assert.equal(fresh.email, '');
+  assert.equal(productOf(fresh).contact_email, null);
+  assert.ok(
+    productOf(fresh).submission_readiness.missing_fields.includes('email')
+  );
   assert.equal(fresh.registrationEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
   assert.equal(fresh.verificationInboxEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
   const saved = await updateWebsite(id, fresh.id, {
@@ -284,8 +319,14 @@ test('fresh pending records capture the login email while legacy attempts requir
     .where(eq(website.id, id));
   await record(id, 'fresh', 'pending');
   const fresh = (await claim(id, { data_source: 'website' })).task!;
-  assert.equal(fresh.product.submission_email, 'owner@gmail.com');
-  assert.equal(fresh.product.verification_inbox_email, 'forwarded@gmail.com');
+  assert.equal(
+    fresh.product.submission_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
+  assert.equal(
+    fresh.product.verification_inbox_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
   await reportResult(id, fresh.id, {
     worker_id: `${id}-worker`,
     lease_id: fresh.lease_id,
@@ -299,8 +340,13 @@ test('fresh pending records capture the login email while legacy attempts requir
   const legacy = (await claim(id, { data_source: 'website' })).task!;
   assert.equal(legacy.product.submission_identity_review_required, true);
   assert.equal(legacy.product.submission_email, null);
-  assert.equal(legacy.product.registration_email, null);
-  assert.equal(legacy.product.email, null);
+  assert.equal(
+    legacy.product.registration_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
+  assert.equal(legacy.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(legacy.account_policy.requires_account_review, true);
+  assert.equal(legacy.account_policy.allow_logout, false);
   assert.equal(legacy.product.contact_email, 'support@product.example');
   assert.equal(legacy.proof, 'Existing support account draft');
 });
@@ -339,8 +385,11 @@ test('mailbox settings reject invalid identities and survive older profile updat
     ...oldBody
   } = w;
   const saved = await updateWebsite(id, id, oldBody);
-  assert.equal(saved.registrationEmail, settings.registrationEmail);
-  assert.equal(saved.verificationInboxEmail, settings.verificationInboxEmail);
+  assert.equal(saved.registrationEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(saved.verificationInboxEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  const [stored] = await db().select().from(website).where(eq(website.id, id));
+  assert.equal(stored.registrationEmail, settings.registrationEmail);
+  assert.equal(stored.verificationInboxEmail, settings.verificationInboxEmail);
   assert.equal(productOf(saved).email_capability, 'send_capable');
   await assert.rejects(
     updateWebsite('someone-else', id, {
@@ -351,8 +400,47 @@ test('mailbox settings reject invalid identities and survive older profile updat
   );
   assert.equal(
     (await requireWebsite(id, id)).registrationEmail,
-    settings.registrationEmail
+    DEFAULT_SUBMISSION_ACCOUNT.email
   );
+});
+
+test('company founding facts are optional, validated, and never inferred from product launch dates', async () => {
+  const id = await fixture();
+  const w = await requireWebsite(id, id);
+  const launchOnly = await updateWebsite(id, id, {
+    ...w,
+    launchDate: '2026-11-17',
+  });
+  assert.equal(productOf(launchOnly).company.founded_year, null);
+  assert.equal(productOf(launchOnly).company.headquarters.address, null);
+  const updated = await updateWebsite(id, id, {
+    ...launchOnly,
+    metadata: [{ key: COMPANY_FOUNDED_YEAR_KEY, value: '2021' }],
+    location: {
+      country: 'United States',
+      state: 'Washington',
+      city: 'Seattle',
+      address: 'User-provided real headquarters',
+      zip: '98101',
+    },
+  });
+  assert.equal(productOf(updated).company.founded_year, 2021);
+  assert.equal(productOf(updated).company.headquarters.city, 'Seattle');
+  assert.equal((await claim(id)).task?.product.company.founded_year, 2021);
+  for (const value of [
+    'unknown',
+    '2026-11-17',
+    String(new Date().getFullYear() + 1),
+  ]) {
+    assert.throws(
+      () =>
+        sanitizeWebsiteInput({
+          ...updated,
+          metadata: [{ key: COMPANY_FOUNDED_YEAR_KEY, value }],
+        }),
+      /founded year/
+    );
+  }
 });
 
 test('a product-specific blocked result cannot hide the target from another website', async () => {
@@ -365,10 +453,22 @@ test('a product-specific blocked result cannot hide the target from another webs
   assert.ok((await claim(id)).task);
 });
 
-test('captcha and rejection preserve enabled entries; explicit disabling is respected', async () => {
+test('account blockers, full free queues and site errors preserve free enabled entries', async () => {
   const id = await fixture();
-  await applyFailureReason(id, id, 'captcha');
-  await applyFailureReason(id, id, 'forbidden');
+  for (const reason of [
+    'captcha',
+    'forbidden',
+    'account',
+    'missing_info',
+    'reciprocal',
+    'queue_full',
+    'site_down',
+  ] as const)
+    await applyFailureReason(id, id, reason);
+  assert.equal(
+    (await db().select().from(backlink).where(eq(backlink.id, id)))[0].costType,
+    'free'
+  );
   assert.equal(
     (await db().select().from(userBacklink).where(eq(userBacklink.id, id)))[0]
       .enabled,

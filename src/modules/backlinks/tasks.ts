@@ -68,13 +68,14 @@ async function taskView(userId: string, r: WebsiteBacklink) {
   const product = productOf(w);
   // A legacy attempt with no stored identity cannot safely inherit a newly
   // configured login email. Require an account check before using that task.
-  const identityReviewRequired = r.attemptCount > 0 && !r.submissionEmail;
-  const submissionEmail = identityReviewRequired
+  const unknownIdentity = r.attemptCount > 0 && !r.submissionEmail;
+  const submissionEmail = unknownIdentity
     ? null
     : r.submissionEmail || product.registration_email;
   const sameRegistrationEmail =
     submissionEmail?.toLowerCase() ===
     product.registration_email?.toLowerCase();
+  const identityReviewRequired = unknownIdentity || !sameRegistrationEmail;
   return {
     id: r.id,
     website_id: r.websiteId,
@@ -107,14 +108,23 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       // Keep a task tied to the mailbox captured when it was claimed. This
       // prevents changing a website profile from silently switching an old
       // task to a different account.
-      email: submissionEmail,
+      // Keep the compatibility login field on the shared Gmail even when a
+      // historical attempt used support@...; the snapshot stays as evidence.
+      email: product.registration_email,
       submission_email: submissionEmail,
-      registration_email: submissionEmail,
-      email_capability: sameRegistrationEmail
-        ? product.email_capability
-        : 'unknown',
+      registration_email: product.registration_email,
+      email_capability: product.email_capability,
       submission_identity_review_required: identityReviewRequired,
       registration_password: await agentPassword(w.id),
+    },
+    account_policy: {
+      login_email: product.registration_email,
+      verification_inbox_email: product.verification_inbox_email,
+      mailbox_url: product.email_management_url,
+      public_contact_email: product.contact_email,
+      allow_logout: false,
+      requires_account_review: identityReviewRequired,
+      previous_submission_email: r.submissionEmail,
     },
     opportunity: {
       id: r.backlinkId,

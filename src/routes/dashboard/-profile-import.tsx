@@ -99,7 +99,7 @@ const FIELD_NOTES: Partial<Record<keyof typeof TEMPLATE, string>> = {
   locationCity: 'Public company city',
   locationZipcode: 'Public company postal code',
   locationAddress: 'Public company street address',
-  metaData: `Up to ${ITEM_LIMIT} extra { key, value } facts useful for directory forms`,
+  metaData: `Up to ${ITEM_LIMIT} extra { key, value } facts useful for directory forms. Use company_founded_year for the verified company's founding year (YYYY); never infer it from the product launch date. Omit when unknown.`,
   links: `Up to ${ITEM_LIMIT} { name, url } important pages of the product, used as comment anchors`,
 };
 

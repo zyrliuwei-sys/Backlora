@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { DEFAULT_SUBMISSION_ACCOUNT } from '../src/config/submission-account';
 import {
   buildAgentInstructions,
   buildApiDoc,
   buildBadgeCopyInstructions,
   buildPrimaryPrompt,
   buildSubmissionIdentityInstructions,
+  buildSubmissionRecoveryInstructions,
+  upgradeSubmissionIdentityPrompt,
+  upgradeSubmissionRecoveryPrompt,
 } from '../src/routes/dashboard/-agent-prompt';
 
 const baseUrl = 'https://backlora.example';
@@ -99,14 +103,58 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.includes(buildSubmissionIdentityInstructions()));
       assert.ok(instructions.includes('product.contact_email'));
       assert.ok(instructions.includes('product.submission_email'));
-      assert.ok(instructions.includes('product.verification_inbox_email'));
+      assert.ok(instructions.includes('verification_inbox_email'));
       assert.ok(instructions.includes('Google 登录不要求代注册密码'));
       assert.ok(
         instructions.includes('submission_identity_review_required=true')
       );
-      assert.ok(!instructions.includes('wldesign1983@gmail.com'));
+      assert.ok(instructions.startsWith(buildSubmissionIdentityInstructions()));
+      assert.ok(instructions.includes(DEFAULT_SUBMISSION_ACCOUNT.email));
+      assert.ok(instructions.includes('禁止因为这个差异注销'));
     }
   }
+});
+
+test('saved-job upgrade removes conflicting account rules and preserves credentials and limits', () => {
+  const old = `VectorMint\n- API Key: test-only-placeholder\n最多处理 7 个任务\n4. 目标站登录前核对当前账号邮箱；只有产品邮箱没有 Google 身份时记录 account。\n4. 在目标站登录和注册只能用 product.email 这一个邮箱；账号不一致时注销。\n保留草稿和结果证据。`;
+  const updated = upgradeSubmissionIdentityPrompt(old);
+  assert.ok(!updated.includes('只能用 product.email'));
+  assert.ok(!updated.includes('账号不一致时注销'));
+  assert.ok(!updated.includes('产品邮箱没有 Google 身份'));
+  assert.ok(updated.includes('test-only-placeholder'));
+  assert.ok(updated.includes('最多处理 7 个任务'));
+  assert.ok(updated.includes('Gravatar'));
+  assert.ok(updated.includes('保持原会话并回传 needs_user'));
+  assert.equal(upgradeSubmissionIdentityPrompt(updated), updated);
+});
+
+test('failure recovery distinguishes official partner badges, eligibility, free queues and remote database errors', () => {
+  const original = buildAgentInstructions({
+    baseUrl,
+    primary: '最多处理 10 个任务；不得付款。',
+    custom: '',
+  });
+  const updated = upgradeSubmissionRecoveryPrompt(original);
+  assert.equal(upgradeSubmissionRecoveryPrompt(updated), updated);
+  assert.equal(updated.split('【提交预检与失败恢复】').length - 1, 1);
+  assert.equal(updated.split('【注册身份与公开联系邮箱】').length - 1, 1);
+  assert.ok(updated.includes(buildSubmissionRecoveryInstructions()));
+  assert.ok(
+    buildApiDoc(baseUrl).includes(buildSubmissionRecoveryInstructions())
+  );
+  for (const requirement of [
+    'Good AI Tools',
+    'product.metadata.company_founded_year',
+    '不能随机生成地址',
+    'British Columbia',
+    'https://dokeyai.com/submit',
+    'queue_full',
+    'RLS',
+    '不重新发送',
+  ]) {
+    assert.ok(updated.includes(requirement));
+  }
+  assert.ok(updated.includes('最多处理 10 个任务；不得付款。'));
 });
 
 test('server-rendered dialog can generate instructions before the browser origin exists', () => {

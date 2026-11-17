@@ -14,6 +14,8 @@ import {
 import { db } from '@/core/db';
 import { atomic } from '@/core/db/atomic';
 import {
+  COMPANY_FOUNDED_YEAR_KEY,
+  companyFoundedYear,
   EMAIL_CAPABILITIES,
   normalizeUrl,
   oneOf,
@@ -97,14 +99,10 @@ export function viewWebsite({
 }: Website): WebsiteView {
   return {
     ...w,
-    registrationEmail: w.registrationEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
-    registrationEmailCapability: w.registrationEmail
-      ? w.registrationEmailCapability
-      : DEFAULT_SUBMISSION_ACCOUNT.capability,
-    verificationInboxEmail:
-      w.verificationInboxEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
-    emailManagementUrl:
-      w.emailManagementUrl || DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
+    registrationEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
+    registrationEmailCapability: DEFAULT_SUBMISSION_ACCOUNT.capability,
+    verificationInboxEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
+    emailManagementUrl: DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -130,6 +128,15 @@ export function sanitizeWebsiteInput(
     .map((m: any) => ({ key: str(m?.key, 100), value: str(m?.value, 2000) }))
     .filter((m: Meta) => m.key)
     .slice(0, 50);
+  if (
+    metadata.some(
+      (m) =>
+        m.key === COMPANY_FOUNDED_YEAR_KEY &&
+        m.value &&
+        companyFoundedYear(m.value) === null
+    )
+  )
+    throw new BacklinkError('Invalid company founded year');
   // Older clients omit these fields. Preserve saved identities on PUT rather
   // than clearing them and accidentally falling back to the public email.
   const mailbox: Partial<
@@ -237,16 +244,13 @@ export type Readiness = {
 
 /** New submissions use the shared login, never a project's public email. */
 export function registrationEmailOf(
-  w: Pick<Website, 'registrationEmail' | 'email' | 'ownerEmail'>
+  _w: Pick<Website, 'registrationEmail' | 'email' | 'ownerEmail'>
 ) {
-  return w.registrationEmail || DEFAULT_SUBMISSION_ACCOUNT.email;
+  return DEFAULT_SUBMISSION_ACCOUNT.email;
 }
 
-export function registrationCapabilityOf(w: WebsiteView): EmailCapability {
-  const capability = w.registrationEmail
-    ? w.registrationEmailCapability
-    : DEFAULT_SUBMISSION_ACCOUNT.capability;
-  return oneOf(capability, EMAIL_CAPABILITIES) ? capability : 'unknown';
+export function registrationCapabilityOf(_w: WebsiteView): EmailCapability {
+  return DEFAULT_SUBMISSION_ACCOUNT.capability;
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -263,7 +267,7 @@ export function submissionReadiness(w: WebsiteView): Readiness {
   if (!w.url || !isHttpUrl(w.url)) blocking.push('url');
   if (!w.shortDesc) blocking.push('shortDesc');
 
-  const email = w.email || w.ownerEmail;
+  const email = w.email;
   if (!email) missing.push('email');
   else if (!isEmail(email)) invalid.push('email');
   if (w.registrationEmail && !isEmail(w.registrationEmail))
@@ -295,6 +299,7 @@ export function submissionReadiness(w: WebsiteView): Readiness {
 /** The `product` object handed to agents (snake_case, see the API doc). */
 export function productOf(w: WebsiteView) {
   const registrationEmail = registrationEmailOf(w);
+  const metadata = Object.fromEntries(w.metadata.map((m) => [m.key, m.value]));
   return {
     id: w.id,
     product_name: w.name,
@@ -309,10 +314,9 @@ export function productOf(w: WebsiteView) {
     // Legacy agents use email for login. Give public form fields their own
     // explicit contact_email instead of exposing a private login as contact.
     email: registrationEmail,
-    contact_email: w.email || w.ownerEmail || null,
+    contact_email: w.email || null,
     registration_email: registrationEmail,
-    verification_inbox_email:
-      w.verificationInboxEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
+    verification_inbox_email: DEFAULT_SUBMISSION_ACCOUNT.email,
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,
@@ -328,6 +332,13 @@ export function productOf(w: WebsiteView) {
     price_model: w.priceModel || null,
     lowest_price: w.lowestPrice || null,
     launch_date: w.launchDate || null,
+    company: {
+      // A product launch date is not evidence of a company's founding year.
+      founded_year: companyFoundedYear(metadata[COMPANY_FOUNDED_YEAR_KEY]),
+      headquarters: Object.fromEntries(
+        LOCATION_KEYS.map((k) => [k, w.location[k] || null])
+      ),
+    },
     social_links: {
       facebook: w.socialLinks.facebook || null,
       twitter: w.socialLinks.twitter || null,
@@ -339,15 +350,14 @@ export function productOf(w: WebsiteView) {
     location: Object.fromEntries(
       LOCATION_KEYS.map((k) => [k, w.location[k] || null])
     ),
-    metadata: Object.fromEntries(w.metadata.map((m) => [m.key, m.value])),
+    metadata,
     links: w.links,
     auto_backlink_enabled: w.autoBacklinkEnabled,
     email_capability: registrationCapabilityOf(w),
     contact_email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
-    email_management_url:
-      w.emailManagementUrl || DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
+    email_management_url: DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     submission_readiness: submissionReadiness(w),
   };
 }

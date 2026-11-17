@@ -4,6 +4,38 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-18 — Preflight company eligibility and recover the right failure
+
+Prompts now distinguish missing company facts, official partner reciprocal links,
+full free queues and explicit target-site database/RLS errors. Full free queues
+use `queue_full`, not `paid`; target database failures use `site_down`. Previously
+submitted/published results stay intact and are never bulk requeued.
+
+An optional company founding year is stored as metadata key
+`company_founded_year` and exposed as `product.company.founded_year`; headquarters
+come from the existing location fields. Unknown company facts stay blank and are
+not inferred from product launch dates. No schema migration is required.
+
+Deploy the updated UI/API and refresh saved jobs with
+`upgradeSubmissionRecoveryPrompt` to include the current preflight rules. Real
+company facts must be supplied by the owner; code cannot repair a third-party
+RLS policy or create free launch slots.
+
+## 2026-11-18 — Stop signing out to match a public product email
+
+The shared Gmail now takes precedence over stale website login overrides.
+Public contact emails remain project-specific. Each task includes an
+`account_policy` with `allow_logout=false`, the current authorized login/inbox,
+and a review flag for missing or different historical identities. Historical
+task snapshots stay intact; published results must not be resubmitted.
+
+Generated prompts put the explicit shared Gmail rule first and cover Google,
+WordPress.com and Gravatar. `upgradeSubmissionIdentityPrompt` replaces the
+conflicting login paragraphs in saved jobs while preserving keys, limits and
+other instructions. Deploy the server update and refresh saved jobs; changing
+only the website defaults cannot update previously copied prompts. No schema
+change is required for this fix.
+
 ## 2026-11-18 — Shared default submission account
 
 This installation uses `wldesign1983@gmail.com` for registration, Google login

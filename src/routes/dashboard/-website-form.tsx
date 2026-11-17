@@ -2,7 +2,11 @@ import { useRef, useState, type ReactNode } from 'react';
 import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { EMAIL_CAPABILITIES, PRICE_MODELS } from '@/config/backlinks';
+import {
+  COMPANY_FOUNDED_YEAR_KEY,
+  EMAIL_CAPABILITIES,
+  PRICE_MODELS,
+} from '@/config/backlinks';
 import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
 import { apiUpload } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
@@ -592,6 +596,7 @@ export function WebsiteFields({
                   type="email"
                   autoComplete="off"
                   value={v.registrationEmail}
+                  readOnly
                   onChange={(e) => set('registrationEmail', e.target.value)}
                   placeholder={DEFAULT_SUBMISSION_ACCOUNT.email}
                 />
@@ -604,6 +609,7 @@ export function WebsiteFields({
                   type="email"
                   autoComplete="off"
                   value={v.verificationInboxEmail}
+                  readOnly
                   onChange={(e) =>
                     set('verificationInboxEmail', e.target.value)
                   }
@@ -617,6 +623,7 @@ export function WebsiteFields({
               >
                 <Select
                   value={v.registrationEmailCapability}
+                  disabled
                   onValueChange={(x) =>
                     x &&
                     set(
@@ -657,6 +664,7 @@ export function WebsiteFields({
               >
                 <Input
                   value={v.emailManagementUrl}
+                  readOnly
                   onChange={(e) => set('emailManagementUrl', e.target.value)}
                   placeholder={DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}
                 />
@@ -836,6 +844,37 @@ export function WebsiteFields({
             }
           >
             <div className="grid gap-4 sm:grid-cols-2">
+              <F
+                label={m['dash.form.company_founded_year']()}
+                hint={m['dash.form.company_founded_year_hint']()}
+                wide
+              >
+                <Input
+                  type="number"
+                  min={1000}
+                  max={new Date().getFullYear()}
+                  value={
+                    Object.fromEntries(
+                      v.metadata.map((item) => [item.key, item.value])
+                    )[COMPANY_FOUNDED_YEAR_KEY] ?? ''
+                  }
+                  onChange={(e) =>
+                    set('metadata', [
+                      ...v.metadata.filter(
+                        (item) => item.key !== COMPANY_FOUNDED_YEAR_KEY
+                      ),
+                      ...(e.target.value
+                        ? [
+                            {
+                              key: COMPANY_FOUNDED_YEAR_KEY,
+                              value: e.target.value,
+                            },
+                          ]
+                        : []),
+                    ])
+                  }
+                />
+              </F>
               {(
                 [
                   ['country', m['dash.form.country']()],

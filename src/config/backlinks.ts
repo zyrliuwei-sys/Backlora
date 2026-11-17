@@ -36,6 +36,15 @@ export const EMAIL_CAPABILITIES = [
 ] as const;
 export type EmailCapability = (typeof EMAIL_CAPABILITIES)[number];
 
+/** Kept in website.metadata so existing projects need no schema migration. */
+export const COMPANY_FOUNDED_YEAR_KEY = 'company_founded_year';
+
+export function companyFoundedYear(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d{4}$/.test(value.trim())) return null;
+  const year = Number(value);
+  return year >= 1000 && year <= new Date().getFullYear() ? year : null;
+}
+
 export const LINK_TYPES = ['unknown', 'dofollow', 'nofollow'] as const;
 export type LinkType = (typeof LINK_TYPES)[number];
 
@@ -92,7 +101,7 @@ export const FAILURE_REASONS = [
   'email_send', // the mailbox cannot send or reply as the product email
   'missing_info', // product profile lacks something the form needs
   'queue_full', // free slots or launch queue full
-  'site_down', // dead, parked, WAF, unreachable
+  'site_down', // dead, parked, WAF, unreachable, or an explicit target-site error
   'no_entry', // no submission form or entry point
   'lease_expired', // outcome must be verified before retry
   'result_unknown', // result/receipt could not be confirmed
