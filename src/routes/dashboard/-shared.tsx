@@ -74,6 +74,9 @@ export interface Website {
   internalNote: string;
   email: string;
   emailCapability: EmailCapability;
+  registrationEmail: string;
+  registrationEmailCapability: EmailCapability;
+  verificationInboxEmail: string;
   launchDate: string;
   iconUrl: string;
   screenshotUrls: string[];

@@ -4,6 +4,32 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-18 — Separate public contact, login identity and verification inbox
+
+Website `email` remains the public contact. New `registrationEmail`,
+`registrationEmailCapability` and `verificationInboxEmail` fields configure
+the external login and the mailbox receiving codes. Set a personal Gmail as
+the login/inbox to reuse that account's signed-in browser session while keeping
+support@... as the public contact. Existing profiles without a login override
+retain their previous email fallback. The mailbox URL only chooses where to
+read mail; it does not authorize another login account.
+
+- **Schema:** port the three new `website` columns from `schema.sqlite.ts`.
+  Development uses `pnpm db:push`; production requires a generated, reviewed
+  migration before deployment. No production records are rewritten automatically.
+- **API:** product `contact_email` is public contact; `registration_email` is
+  the login identity; `verification_inbox_email` is the receiving account.
+  Task `email` remains a compatibility alias for its `submission_email`.
+  `email_capability` describes that login, not the public support mailbox.
+- **Existing tasks:** saved submission identities are retained. Previously
+  attempted records without a mailbox snapshot return
+  `submission_identity_review_required=true` and no login identity. Check the
+  existing account/draft before resuming instead of registering again.
+- **Agents:** regenerate copied/scheduled prompts after deployment. The shared
+  API contract includes the identity rules even for manually edited prompts.
+  Google login reuses only the configured account and needs no sign-up password;
+  public contact fields use `contact_email`.
+
 ## 2026-11-17 — Snapshot submission mailbox identity
 
 Website profiles now record mailbox capability (`unknown`, `receive_only`, or

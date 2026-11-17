@@ -896,6 +896,15 @@ export const website = table(
     email: text('email').notNull().default(''),
     // unknown | receive_only | send_capable
     emailCapability: text('email_capability').notNull().default('unknown'),
+    // External account identity; email above remains the public contact.
+    registrationEmail: text('registration_email').notNull().default(''),
+    registrationEmailCapability: text('registration_email_capability')
+      .notNull()
+      .default('unknown'),
+    // The mailbox receiving codes may differ when mail is forwarded.
+    verificationInboxEmail: text('verification_inbox_email')
+      .notNull()
+      .default(''),
     launchDate: text('launch_date').notNull().default(''),
     iconUrl: text('icon_url').notNull().default(''),
     screenshotUrls: text('screenshot_urls').notNull().default('[]'),

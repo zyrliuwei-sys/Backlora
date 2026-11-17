@@ -6,6 +6,7 @@ import {
   buildApiDoc,
   buildBadgeCopyInstructions,
   buildPrimaryPrompt,
+  buildSubmissionIdentityInstructions,
 } from '../src/routes/dashboard/-agent-prompt';
 
 const baseUrl = 'https://backlora.example';
@@ -75,6 +76,37 @@ test('standalone API contract includes the same complete procedure without crede
   assertBadgeFlow(doc);
   assert.ok(doc.includes(buildBadgeCopyInstructions(baseUrl)));
   assert.ok(!doc.includes(options.apiKey));
+});
+
+test('all runners and edited prompts retain separate login, inbox and public-contact rules', () => {
+  for (const container of [
+    'ego-browser',
+    'chrome-devtools-mcp',
+    'playwright',
+    'codex-browser',
+  ] as const) {
+    const primary = buildPrimaryPrompt({ ...options, container });
+    for (const prompt of [primary, '旧模板：用产品邮箱登录。', '']) {
+      const instructions = buildAgentInstructions({
+        baseUrl,
+        primary: prompt,
+        custom: '',
+      });
+      assert.equal(
+        instructions.split('【注册身份与公开联系邮箱】').length - 1,
+        1
+      );
+      assert.ok(instructions.includes(buildSubmissionIdentityInstructions()));
+      assert.ok(instructions.includes('product.contact_email'));
+      assert.ok(instructions.includes('product.submission_email'));
+      assert.ok(instructions.includes('product.verification_inbox_email'));
+      assert.ok(instructions.includes('Google 登录不要求代注册密码'));
+      assert.ok(
+        instructions.includes('submission_identity_review_required=true')
+      );
+      assert.ok(!instructions.includes('wldesign1983@gmail.com'));
+    }
+  }
 });
 
 test('server-rendered dialog can generate instructions before the browser origin exists', () => {

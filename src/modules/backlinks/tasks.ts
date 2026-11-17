@@ -48,7 +48,12 @@ import {
   viewBacklink,
 } from './library';
 import { BacklinkError, isHttpUrl, str, strOrNull } from './shared';
-import { agentPassword, productOf, requireWebsite } from './websites';
+import {
+  agentPassword,
+  productOf,
+  registrationEmailOf,
+  requireWebsite,
+} from './websites';
 
 const FINAL = ['submitted', 'live', 'duplicate'] as const;
 
@@ -61,7 +66,15 @@ async function taskView(userId: string, r: WebsiteBacklink) {
     : null;
   const entry = b ? viewBacklink(b) : null;
   const product = productOf(w);
-  const submissionEmail = r.submissionEmail || product.email;
+  // A legacy attempt with no stored identity cannot safely inherit a newly
+  // configured login email. Require an account check before using that task.
+  const identityReviewRequired = r.attemptCount > 0 && !r.submissionEmail;
+  const submissionEmail = identityReviewRequired
+    ? null
+    : r.submissionEmail || product.registration_email;
+  const sameRegistrationEmail =
+    submissionEmail?.toLowerCase() ===
+    product.registration_email?.toLowerCase();
   return {
     id: r.id,
     website_id: r.websiteId,
@@ -96,6 +109,11 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       // task to a different account.
       email: submissionEmail,
       submission_email: submissionEmail,
+      registration_email: submissionEmail,
+      email_capability: sameRegistrationEmail
+        ? product.email_capability
+        : 'unknown',
+      submission_identity_review_required: identityReviewRequired,
       registration_password: await agentPassword(w.id),
     },
     opportunity: {
@@ -278,7 +296,7 @@ async function claimExisting(
   category?: string,
   includePaid = false
 ): Promise<WebsiteBacklink | null> {
-  const submissionEmail = w.email || w.ownerEmail || null;
+  const submissionEmail = registrationEmailOf(w);
   for (let attempt = 0; attempt < 5; attempt++) {
     const [candidate]: { id: string }[] = await db()
       .select({ id: websiteBacklink.id })
@@ -323,7 +341,8 @@ async function claimExisting(
           .set({
             ...lease,
             attemptCount: sql`${websiteBacklink.attemptCount} + 1`,
-            submissionEmail: sql`coalesce(${websiteBacklink.submissionEmail}, ${submissionEmail})`,
+            // Preserve old identities, including unknown legacy attempts.
+            submissionEmail: sql`case when ${websiteBacklink.attemptCount} = 0 then coalesce(${websiteBacklink.submissionEmail}, ${submissionEmail}) else ${websiteBacklink.submissionEmail} end`,
           })
           .where(
             and(
@@ -361,7 +380,7 @@ async function claimFromLibrary(
   category?: string,
   includePaid = false
 ): Promise<WebsiteBacklink | null> {
-  const submissionEmail = w.email || w.ownerEmail || null;
+  const submissionEmail = registrationEmailOf(w);
   const notYetRecorded = notExists(
     db()
       .select({ one: sql`1` })

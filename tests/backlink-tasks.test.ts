@@ -53,6 +53,8 @@ const { startTask, reportResult, heartbeat, getTask } =
 const { retryRecords, createRecord } =
   await import('../src/modules/backlinks/records');
 const { applyFailureReason } = await import('../src/modules/backlinks/library');
+const { sanitizeWebsiteInput, requireWebsite, productOf, updateWebsite } =
+  await import('../src/modules/backlinks/websites');
 after(async () => {
   await disposeD1?.();
   await rm(directory, { recursive: true, force: true });
@@ -151,12 +153,14 @@ test('task mailbox identity is snapshotted and receive-only blockers are explici
 
   await db()
     .update(website)
-    .set({ email: 'wldesign1983@gmail.com', emailCapability: 'send_capable' })
+    .set({
+      registrationEmail: 'login@example.test',
+      registrationEmailCapability: 'send_capable',
+    })
     .where(eq(website.id, id));
-  assert.equal(
-    (await getTask(id, task.id)).product.email,
-    'support@product.example'
-  );
+  const oldIdentity = (await getTask(id, task.id)).product;
+  assert.equal(oldIdentity.email, 'support@product.example');
+  assert.equal(oldIdentity.email_capability, 'unknown');
 
   const lease = { worker_id: `${id}-worker`, lease_id: task.lease_id };
   const parked = await reportResult(id, task.id, {
@@ -166,6 +170,132 @@ test('task mailbox identity is snapshotted and receive-only blockers are explici
     needs_user: 'This mailbox cannot send or reply as the product address.',
   });
   assert.equal(parked.status, 'needs_user');
+});
+
+test('personal login and verification inbox stay separate from public contact across claims and retries', async () => {
+  const id = await fixture();
+  await db()
+    .update(website)
+    .set({
+      email: 'support@product.example',
+      emailCapability: 'receive_only',
+      registrationEmail: 'owner@gmail.com',
+      registrationEmailCapability: 'send_capable',
+      verificationInboxEmail: 'owner@gmail.com',
+      emailManagementUrl:
+        'https://mail.google.com/mail/?authuser=owner%40gmail.com',
+    })
+    .where(eq(website.id, id));
+  const claims = await Promise.all([claim(id), claim(id)]);
+  assert.equal(claims[0].task?.id, claims[1].task?.id);
+  const task = claims[0].task!;
+  assert.equal(task.product.contact_email, 'support@product.example');
+  assert.equal(task.product.contact_email_capability, 'receive_only');
+  assert.equal(task.product.submission_email, 'owner@gmail.com');
+  assert.equal(task.product.registration_email, 'owner@gmail.com');
+  assert.equal(task.product.email, 'owner@gmail.com');
+  assert.equal(task.product.verification_inbox_email, 'owner@gmail.com');
+  assert.equal(task.product.email_capability, 'send_capable');
+  assert.equal(task.product.registration_password, null);
+  assert.equal(task.product.submission_identity_review_required, false);
+  await reportResult(id, task.id, {
+    worker_id: `${id}-worker`,
+    lease_id: task.lease_id,
+    status: 'needs_user',
+    reason: 'captcha',
+    needs_user: 'A CAPTCHA needs attention.',
+  });
+  await db()
+    .update(website)
+    .set({ registrationEmail: 'new-login@gmail.com' })
+    .where(eq(website.id, id));
+  await retryRecords(id, [task.id]);
+  const retried = (await claim(id)).task!;
+  assert.equal(retried.product.submission_email, 'owner@gmail.com');
+  assert.equal(retried.product.contact_email, 'support@product.example');
+});
+
+test('fresh pending records capture the login email while legacy attempts require identity review', async () => {
+  const id = await fixture();
+  await db()
+    .update(website)
+    .set({
+      email: 'support@product.example',
+      registrationEmail: 'owner@gmail.com',
+      verificationInboxEmail: 'forwarded@gmail.com',
+    })
+    .where(eq(website.id, id));
+  await record(id, 'fresh', 'pending');
+  const fresh = (await claim(id, { data_source: 'website' })).task!;
+  assert.equal(fresh.product.submission_email, 'owner@gmail.com');
+  assert.equal(fresh.product.verification_inbox_email, 'forwarded@gmail.com');
+  await reportResult(id, fresh.id, {
+    worker_id: `${id}-worker`,
+    lease_id: fresh.lease_id,
+    status: 'submitted',
+    proof: 'Receipt for fresh listing',
+  });
+  await record(id, 'legacy', 'pending', {
+    attemptCount: 1,
+    proof: 'Existing support account draft',
+  });
+  const legacy = (await claim(id, { data_source: 'website' })).task!;
+  assert.equal(legacy.product.submission_identity_review_required, true);
+  assert.equal(legacy.product.submission_email, null);
+  assert.equal(legacy.product.registration_email, null);
+  assert.equal(legacy.product.email, null);
+  assert.equal(legacy.product.contact_email, 'support@product.example');
+  assert.equal(legacy.proof, 'Existing support account draft');
+});
+
+test('mailbox settings reject invalid identities and survive older profile updates', async () => {
+  const id = await fixture();
+  const settings = {
+    registrationEmail: 'owner@gmail.com',
+    verificationInboxEmail: 'forwarded@gmail.com',
+    registrationEmailCapability: 'send_capable',
+  };
+  for (const field of ['registrationEmail', 'verificationInboxEmail']) {
+    assert.throws(
+      () =>
+        sanitizeWebsiteInput({
+          url: 'https://product.example',
+          [field]: 'not-an-email',
+        }),
+      /Invalid/
+    );
+  }
+  assert.throws(
+    () =>
+      sanitizeWebsiteInput({
+        url: 'https://product.example',
+        registrationEmailCapability: 'yes',
+      }),
+    /Invalid/
+  );
+  await db().update(website).set(settings).where(eq(website.id, id));
+  const w = await requireWebsite(id, id);
+  const {
+    registrationEmail: _a,
+    verificationInboxEmail: _b,
+    registrationEmailCapability: _c,
+    ...oldBody
+  } = w;
+  const saved = await updateWebsite(id, id, oldBody);
+  assert.equal(saved.registrationEmail, settings.registrationEmail);
+  assert.equal(saved.verificationInboxEmail, settings.verificationInboxEmail);
+  assert.equal(productOf(saved).email_capability, 'send_capable');
+  await assert.rejects(
+    updateWebsite('someone-else', id, {
+      ...w,
+      registrationEmail: 'other@gmail.com',
+    }),
+    /not found/
+  );
+  assert.equal(
+    (await requireWebsite(id, id)).registrationEmail,
+    settings.registrationEmail
+  );
 });
 
 test('a product-specific blocked result cannot hide the target from another website', async () => {

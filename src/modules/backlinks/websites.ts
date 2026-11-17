@@ -18,6 +18,7 @@ import {
   normalizeUrl,
   oneOf,
   PRICE_MODELS,
+  type EmailCapability,
 } from '@/config/backlinks';
 import {
   website,
@@ -120,6 +121,33 @@ export function sanitizeWebsiteInput(
     .map((m: any) => ({ key: str(m?.key, 100), value: str(m?.value, 2000) }))
     .filter((m: Meta) => m.key)
     .slice(0, 50);
+  // Older clients omit these fields. Preserve saved identities on PUT rather
+  // than clearing them and accidentally falling back to the public email.
+  const mailbox: Partial<
+    Pick<
+      NewWebsite,
+      | 'registrationEmail'
+      | 'registrationEmailCapability'
+      | 'verificationInboxEmail'
+    >
+  > = {};
+  for (const field of [
+    'registrationEmail',
+    'verificationInboxEmail',
+  ] as const) {
+    if (body?.[field] === undefined) continue;
+    if (typeof body[field] !== 'string')
+      throw new BacklinkError(`${field} must be an email address`);
+    const value = body[field].trim();
+    if (value && (value.length > 200 || !isEmail(value)))
+      throw new BacklinkError(`Invalid ${field}`);
+    mailbox[field] = value;
+  }
+  if (body?.registrationEmailCapability !== undefined) {
+    if (!oneOf(body.registrationEmailCapability, EMAIL_CAPABILITIES))
+      throw new BacklinkError('Invalid registrationEmailCapability');
+    mailbox.registrationEmailCapability = body.registrationEmailCapability;
+  }
   return {
     name: str(body?.name, 200) || new URL(url).hostname.replace(/^www\./, ''),
     url,
@@ -129,6 +157,7 @@ export function sanitizeWebsiteInput(
     emailCapability: oneOf(body?.emailCapability, EMAIL_CAPABILITIES)
       ? body.emailCapability
       : 'unknown',
+    ...mailbox,
     launchDate: str(body?.launchDate, 20),
     iconUrl: str(body?.iconUrl, 2000),
     screenshotUrls: JSON.stringify(stringList(body?.screenshotUrls, 5, 2000)),
@@ -197,6 +226,20 @@ export type Readiness = {
   invalid_fields: string[];
 };
 
+/** Compatibility for profiles created before login/contact emails were split. */
+export function registrationEmailOf(
+  w: Pick<Website, 'registrationEmail' | 'email' | 'ownerEmail'>
+) {
+  return w.registrationEmail || w.email || w.ownerEmail || null;
+}
+
+export function registrationCapabilityOf(w: WebsiteView): EmailCapability {
+  const capability = w.registrationEmail
+    ? w.registrationEmailCapability
+    : w.emailCapability;
+  return oneOf(capability, EMAIL_CAPABILITIES) ? capability : 'unknown';
+}
+
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
 export function submissionReadiness(w: WebsiteView): Readiness {
   const blocking: string[] = [];
@@ -214,6 +257,10 @@ export function submissionReadiness(w: WebsiteView): Readiness {
   const email = w.email || w.ownerEmail;
   if (!email) missing.push('email');
   else if (!isEmail(email)) invalid.push('email');
+  if (w.registrationEmail && !isEmail(w.registrationEmail))
+    invalid.push('registrationEmail');
+  if (w.verificationInboxEmail && !isEmail(w.verificationInboxEmail))
+    invalid.push('verificationInboxEmail');
   if (!w.longDesc) missing.push('longDesc');
   if (!w.tagline) missing.push('tagline');
   url('icon', w.iconUrl, true);
@@ -238,6 +285,7 @@ export function submissionReadiness(w: WebsiteView): Readiness {
 
 /** The `product` object handed to agents (snake_case, see the API doc). */
 export function productOf(w: WebsiteView) {
+  const registrationEmail = registrationEmailOf(w);
   return {
     id: w.id,
     product_name: w.name,
@@ -249,7 +297,12 @@ export function productOf(w: WebsiteView) {
       twitter: w.ownerTwitter || null,
       avatar_url: w.ownerAvatarUrl || null,
     },
-    email: w.email || w.ownerEmail || null,
+    // Legacy agents use email for login. Give public form fields their own
+    // explicit contact_email instead of exposing a private login as contact.
+    email: registrationEmail,
+    contact_email: w.email || w.ownerEmail || null,
+    registration_email: registrationEmail,
+    verification_inbox_email: w.verificationInboxEmail || registrationEmail,
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,
@@ -279,7 +332,8 @@ export function productOf(w: WebsiteView) {
     metadata: Object.fromEntries(w.metadata.map((m) => [m.key, m.value])),
     links: w.links,
     auto_backlink_enabled: w.autoBacklinkEnabled,
-    email_capability: w.emailCapability,
+    email_capability: registrationCapabilityOf(w),
+    contact_email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
     email_management_url: w.emailManagementUrl || null,

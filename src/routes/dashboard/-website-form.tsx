@@ -45,6 +45,9 @@ export function emptyWebsite(url = ''): WebsiteForm {
     internalNote: '',
     email: '',
     emailCapability: 'unknown',
+    registrationEmail: '',
+    registrationEmailCapability: 'unknown',
+    verificationInboxEmail: '',
     launchDate: '',
     iconUrl: '',
     screenshotUrls: [],
@@ -74,7 +77,7 @@ export function emptyWebsite(url = ''): WebsiteForm {
 
 export function toWebsiteForm(w: Website): WebsiteForm {
   const { id: _i, counts: _c, createdAt: _a, updatedAt: _u, ...rest } = w;
-  return rest;
+  return { ...emptyWebsite(), ...rest };
 }
 
 const FIRST = [
@@ -391,8 +394,9 @@ export function WebsiteFields({
               placeholder="https://example.com"
             />
           </F>
-          <F label={m['dash.form.email']()}>
+          <F label={m['dash.form.email']()} hint={m['dash.form.email_hint']()}>
             <Input
+              type="email"
               value={v.email}
               onChange={(e) => set('email', e.target.value)}
               placeholder="support@example.com"
@@ -405,8 +409,12 @@ export function WebsiteFields({
             <Select
               value={v.emailCapability}
               onValueChange={(x) =>
-                set('emailCapability', x as WebsiteForm['emailCapability'])
+                x && set('emailCapability', x as WebsiteForm['emailCapability'])
               }
+              items={EMAIL_CAPABILITIES.map((capability) => ({
+                value: capability,
+                label: emailCapabilityLabel[capability](),
+              }))}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -575,6 +583,63 @@ export function WebsiteFields({
             desc={m['dash.form.agent_desc']()}
           >
             <div className="grid gap-4 sm:grid-cols-2">
+              <F
+                label={m['dash.form.registration_email']()}
+                hint={m['dash.form.registration_email_hint']()}
+              >
+                <Input
+                  type="email"
+                  autoComplete="off"
+                  value={v.registrationEmail}
+                  onChange={(e) => set('registrationEmail', e.target.value)}
+                  placeholder="you@gmail.com"
+                />
+              </F>
+              <F
+                label={m['dash.form.verification_inbox_email']()}
+                hint={m['dash.form.verification_inbox_email_hint']()}
+              >
+                <Input
+                  type="email"
+                  autoComplete="off"
+                  value={v.verificationInboxEmail}
+                  onChange={(e) =>
+                    set('verificationInboxEmail', e.target.value)
+                  }
+                  placeholder={v.registrationEmail || 'you@gmail.com'}
+                />
+              </F>
+              <F
+                label={m['dash.form.registration_email_capability']()}
+                hint={m['dash.form.registration_email_capability_hint']()}
+                wide
+              >
+                <Select
+                  value={v.registrationEmailCapability}
+                  onValueChange={(x) =>
+                    x &&
+                    set(
+                      'registrationEmailCapability',
+                      x as WebsiteForm['registrationEmailCapability']
+                    )
+                  }
+                  items={EMAIL_CAPABILITIES.map((capability) => ({
+                    value: capability,
+                    label: emailCapabilityLabel[capability](),
+                  }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMAIL_CAPABILITIES.map((capability) => (
+                      <SelectItem key={capability} value={capability}>
+                        {emailCapabilityLabel[capability]()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </F>
               <F
                 label={m['dash.form.backlink_mgmt']()}
                 hint={m['dash.form.backlink_mgmt_hint']()}
