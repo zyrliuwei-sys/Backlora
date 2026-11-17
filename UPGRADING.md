@@ -4,6 +4,23 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-17 — Snapshot submission mailbox identity
+
+Website profiles now record mailbox capability (`unknown`, `receive_only`, or
+`send_capable`). Each leased backlink task snapshots the product email as
+`submission_email`, so changing a website profile cannot silently switch an
+existing task to another account. Agents must use that snapshot and report
+`email_send` when a receive-only mailbox is asked to send or reply.
+
+### Action required
+
+- [ ] **Schema**: add `website.email_capability` and
+      `website_backlink.submission_email`; run `pnpm db:push` in development,
+      or generate/review/apply a migration for production.
+- [ ] **Prompts**: regenerate saved agent prompts so they use the task mailbox
+      snapshot and search Gmail spam when forwarded verification mail is not in
+      the inbox.
+
 ## 2026-11-13 — Include badge capture in every new agent setup
 
 The new-project wizard and existing-project dialog share the final instruction

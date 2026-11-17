@@ -60,6 +60,8 @@ async function taskView(userId: string, r: WebsiteBacklink) {
     ? await getVisibleBacklink(userId, r.backlinkId)
     : null;
   const entry = b ? viewBacklink(b) : null;
+  const product = productOf(w);
+  const submissionEmail = r.submissionEmail || product.email;
   return {
     id: r.id,
     website_id: r.websiteId,
@@ -88,7 +90,12 @@ async function taskView(userId: string, r: WebsiteBacklink) {
     created_at: new Date(r.createdAt).toISOString(),
     updated_at: new Date(r.updatedAt).toISOString(),
     product: {
-      ...productOf(w),
+      ...product,
+      // Keep a task tied to the mailbox captured when it was claimed. This
+      // prevents changing a website profile from silently switching an old
+      // task to a different account.
+      email: submissionEmail,
+      submission_email: submissionEmail,
       registration_password: await agentPassword(w.id),
     },
     opportunity: {
@@ -271,6 +278,7 @@ async function claimExisting(
   category?: string,
   includePaid = false
 ): Promise<WebsiteBacklink | null> {
+  const submissionEmail = w.email || w.ownerEmail || null;
   for (let attempt = 0; attempt < 5; attempt++) {
     const [candidate]: { id: string }[] = await db()
       .select({ id: websiteBacklink.id })
@@ -315,6 +323,7 @@ async function claimExisting(
           .set({
             ...lease,
             attemptCount: sql`${websiteBacklink.attemptCount} + 1`,
+            submissionEmail: sql`coalesce(${websiteBacklink.submissionEmail}, ${submissionEmail})`,
           })
           .where(
             and(
@@ -352,6 +361,7 @@ async function claimFromLibrary(
   category?: string,
   includePaid = false
 ): Promise<WebsiteBacklink | null> {
+  const submissionEmail = w.email || w.ownerEmail || null;
   const notYetRecorded = notExists(
     db()
       .select({ one: sql`1` })
@@ -402,6 +412,7 @@ async function claimFromLibrary(
             sourceUrl: w.url,
             targetDomain: domainOf(b.link),
             targetUrl: b.link,
+            submissionEmail,
             attemptCount: 1,
             ...lease,
           })

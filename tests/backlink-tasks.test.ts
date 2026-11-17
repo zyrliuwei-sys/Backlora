@@ -134,6 +134,40 @@ test('known paid targets are excluded by default, opt-in is explicit', async () 
   await assert.rejects(claim(id, { include_paid: 'false' }), /boolean/);
 });
 
+test('task mailbox identity is snapshotted and receive-only blockers are explicit', async () => {
+  const id = await fixture();
+  await db()
+    .update(website)
+    .set({
+      email: 'support@product.example',
+      emailCapability: 'receive_only',
+      emailManagementUrl: 'https://mail.google.com/mail/u/0/#inbox',
+    })
+    .where(eq(website.id, id));
+  const task = (await claim(id)).task!;
+  assert.equal(task.product.email, 'support@product.example');
+  assert.equal(task.product.submission_email, 'support@product.example');
+  assert.equal(task.product.email_capability, 'receive_only');
+
+  await db()
+    .update(website)
+    .set({ email: 'wldesign1983@gmail.com', emailCapability: 'send_capable' })
+    .where(eq(website.id, id));
+  assert.equal(
+    (await getTask(id, task.id)).product.email,
+    'support@product.example'
+  );
+
+  const lease = { worker_id: `${id}-worker`, lease_id: task.lease_id };
+  const parked = await reportResult(id, task.id, {
+    ...lease,
+    status: 'needs_user',
+    reason: 'email_send',
+    needs_user: 'This mailbox cannot send or reply as the product address.',
+  });
+  assert.equal(parked.status, 'needs_user');
+});
+
 test('a product-specific blocked result cannot hide the target from another website', async () => {
   const id = await fixture();
   await record(id, 'blocked', 'blocked', {

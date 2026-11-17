@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { PRICE_MODELS } from '@/config/backlinks';
+import { EMAIL_CAPABILITIES, PRICE_MODELS } from '@/config/backlinks';
 import { apiUpload } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,12 @@ import { Textarea } from '@/components/ui/textarea';
 
 import type { Website } from './-shared';
 
+const emailCapabilityLabel = {
+  unknown: () => m['dash.form.email_capability_unknown'](),
+  receive_only: () => m['dash.form.email_capability_receive_only'](),
+  send_capable: () => m['dash.form.email_capability_send_capable'](),
+} as const;
+
 export type WebsiteForm = Omit<
   Website,
   'id' | 'counts' | 'createdAt' | 'updatedAt'
@@ -38,6 +44,7 @@ export function emptyWebsite(url = ''): WebsiteForm {
     url,
     internalNote: '',
     email: '',
+    emailCapability: 'unknown',
     launchDate: '',
     iconUrl: '',
     screenshotUrls: [],
@@ -390,6 +397,28 @@ export function WebsiteFields({
               onChange={(e) => set('email', e.target.value)}
               placeholder="support@example.com"
             />
+          </F>
+          <F
+            label={m['dash.form.email_capability']()}
+            hint={m['dash.form.email_capability_hint']()}
+          >
+            <Select
+              value={v.emailCapability}
+              onValueChange={(x) =>
+                set('emailCapability', x as WebsiteForm['emailCapability'])
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EMAIL_CAPABILITIES.map((capability) => (
+                  <SelectItem key={capability} value={capability}>
+                    {emailCapabilityLabel[capability]()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </F>
           <F label={m['dash.form.launch_date']()}>
             <Input

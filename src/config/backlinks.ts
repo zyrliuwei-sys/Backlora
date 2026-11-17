@@ -28,6 +28,14 @@ export type BacklinkStatus = (typeof BACKLINK_STATUSES)[number];
 export const COST_TYPES = ['unknown', 'free', 'freemium', 'paid'] as const;
 export type CostType = (typeof COST_TYPES)[number];
 
+/** How the product mailbox can be used during an external submission. */
+export const EMAIL_CAPABILITIES = [
+  'unknown',
+  'receive_only',
+  'send_capable',
+] as const;
+export type EmailCapability = (typeof EMAIL_CAPABILITIES)[number];
+
 export const LINK_TYPES = ['unknown', 'dofollow', 'nofollow'] as const;
 export type LinkType = (typeof LINK_TYPES)[number];
 
@@ -81,6 +89,7 @@ export const FAILURE_REASONS = [
   'reciprocal', // needs a badge or link back first
   'account', // login, signup, password or account problem
   'email_verify', // verification email never arrived
+  'email_send', // the mailbox cannot send or reply as the product email
   'missing_info', // product profile lacks something the form needs
   'queue_full', // free slots or launch queue full
   'site_down', // dead, parked, WAF, unreachable

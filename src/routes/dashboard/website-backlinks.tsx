@@ -500,6 +500,7 @@ const reasonLabel: Record<FailureReason, () => string> = {
   reciprocal: () => m['dash.reason.reciprocal'](),
   account: () => m['dash.reason.account'](),
   email_verify: () => m['dash.reason.email_verify'](),
+  email_send: () => m['dash.reason.email_send'](),
   missing_info: () => m['dash.reason.missing_info'](),
   queue_full: () => m['dash.reason.queue_full'](),
   site_down: () => m['dash.reason.site_down'](),

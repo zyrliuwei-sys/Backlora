@@ -894,6 +894,8 @@ export const website = table(
     url: text('url').notNull(),
     internalNote: text('internal_note').notNull().default(''),
     email: text('email').notNull().default(''),
+    // unknown | receive_only | send_capable
+    emailCapability: text('email_capability').notNull().default('unknown'),
     launchDate: text('launch_date').notNull().default(''),
     iconUrl: text('icon_url').notNull().default(''),
     screenshotUrls: text('screenshot_urls').notNull().default('[]'),
@@ -948,6 +950,9 @@ export const websiteBacklink = table(
     websiteId: text('website_id')
       .notNull()
       .references(() => website.id, { onDelete: 'cascade' }),
+    // Snapshot the identity used for this task so changing a website profile
+    // cannot silently make an old task use a different mailbox.
+    submissionEmail: text('submission_email'),
     // null = manual record (never leased to an agent).
     backlinkId: text('backlink_id').references(() => backlink.id, {
       onDelete: 'set null',

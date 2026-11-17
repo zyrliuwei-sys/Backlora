@@ -13,7 +13,12 @@ import {
 
 import { db } from '@/core/db';
 import { atomic } from '@/core/db/atomic';
-import { normalizeUrl, PRICE_MODELS } from '@/config/backlinks';
+import {
+  EMAIL_CAPABILITIES,
+  normalizeUrl,
+  oneOf,
+  PRICE_MODELS,
+} from '@/config/backlinks';
 import {
   website,
   websiteBacklink,
@@ -121,6 +126,9 @@ export function sanitizeWebsiteInput(
     status: body?.status === 'disabled' ? 'disabled' : 'enabled',
     internalNote: str(body?.internalNote, 2000),
     email: str(body?.email, 200),
+    emailCapability: oneOf(body?.emailCapability, EMAIL_CAPABILITIES)
+      ? body.emailCapability
+      : 'unknown',
     launchDate: str(body?.launchDate, 20),
     iconUrl: str(body?.iconUrl, 2000),
     screenshotUrls: JSON.stringify(stringList(body?.screenshotUrls, 5, 2000)),
@@ -271,6 +279,7 @@ export function productOf(w: WebsiteView) {
     metadata: Object.fromEntries(w.metadata.map((m) => [m.key, m.value])),
     links: w.links,
     auto_backlink_enabled: w.autoBacklinkEnabled,
+    email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
     email_management_url: w.emailManagementUrl || null,

@@ -5,6 +5,7 @@ import { ExternalLink as ExternalIcon } from 'lucide-react';
 import type {
   BacklinkCategory,
   CostType,
+  EmailCapability,
   LinkStatus,
   OperationStatus,
   Quality,
@@ -72,6 +73,7 @@ export interface Website {
   url: string;
   internalNote: string;
   email: string;
+  emailCapability: EmailCapability;
   launchDate: string;
   iconUrl: string;
   screenshotUrls: string[];
