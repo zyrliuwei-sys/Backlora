@@ -3,6 +3,7 @@ import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { EMAIL_CAPABILITIES, PRICE_MODELS } from '@/config/backlinks';
+import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
 import { apiUpload } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
@@ -45,9 +46,9 @@ export function emptyWebsite(url = ''): WebsiteForm {
     internalNote: '',
     email: '',
     emailCapability: 'unknown',
-    registrationEmail: '',
-    registrationEmailCapability: 'unknown',
-    verificationInboxEmail: '',
+    registrationEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
+    registrationEmailCapability: DEFAULT_SUBMISSION_ACCOUNT.capability,
+    verificationInboxEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
     launchDate: '',
     iconUrl: '',
     screenshotUrls: [],
@@ -61,7 +62,7 @@ export function emptyWebsite(url = ''): WebsiteForm {
     lowestPrice: '',
     links: [],
     backlinkManagementUrl: '',
-    emailManagementUrl: '',
+    emailManagementUrl: DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     autoBacklinkEnabled: true,
     agentSubmissionNote: '',
     ownerAvatarUrl: '',
@@ -592,7 +593,7 @@ export function WebsiteFields({
                   autoComplete="off"
                   value={v.registrationEmail}
                   onChange={(e) => set('registrationEmail', e.target.value)}
-                  placeholder="you@gmail.com"
+                  placeholder={DEFAULT_SUBMISSION_ACCOUNT.email}
                 />
               </F>
               <F
@@ -606,7 +607,7 @@ export function WebsiteFields({
                   onChange={(e) =>
                     set('verificationInboxEmail', e.target.value)
                   }
-                  placeholder={v.registrationEmail || 'you@gmail.com'}
+                  placeholder={DEFAULT_SUBMISSION_ACCOUNT.email}
                 />
               </F>
               <F
@@ -657,7 +658,7 @@ export function WebsiteFields({
                 <Input
                   value={v.emailManagementUrl}
                   onChange={(e) => set('emailManagementUrl', e.target.value)}
-                  placeholder="https://mail.google.com/mail/u/0/#inbox"
+                  placeholder={DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}
                 />
               </F>
               <F

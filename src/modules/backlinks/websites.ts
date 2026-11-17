@@ -26,6 +26,7 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
+import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
@@ -96,6 +97,14 @@ export function viewWebsite({
 }: Website): WebsiteView {
   return {
     ...w,
+    registrationEmail: w.registrationEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
+    registrationEmailCapability: w.registrationEmail
+      ? w.registrationEmailCapability
+      : DEFAULT_SUBMISSION_ACCOUNT.capability,
+    verificationInboxEmail:
+      w.verificationInboxEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
+    emailManagementUrl:
+      w.emailManagementUrl || DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -226,17 +235,17 @@ export type Readiness = {
   invalid_fields: string[];
 };
 
-/** Compatibility for profiles created before login/contact emails were split. */
+/** New submissions use the shared login, never a project's public email. */
 export function registrationEmailOf(
   w: Pick<Website, 'registrationEmail' | 'email' | 'ownerEmail'>
 ) {
-  return w.registrationEmail || w.email || w.ownerEmail || null;
+  return w.registrationEmail || DEFAULT_SUBMISSION_ACCOUNT.email;
 }
 
 export function registrationCapabilityOf(w: WebsiteView): EmailCapability {
   const capability = w.registrationEmail
     ? w.registrationEmailCapability
-    : w.emailCapability;
+    : DEFAULT_SUBMISSION_ACCOUNT.capability;
   return oneOf(capability, EMAIL_CAPABILITIES) ? capability : 'unknown';
 }
 
@@ -302,7 +311,8 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || w.ownerEmail || null,
     registration_email: registrationEmail,
-    verification_inbox_email: w.verificationInboxEmail || registrationEmail,
+    verification_inbox_email:
+      w.verificationInboxEmail || DEFAULT_SUBMISSION_ACCOUNT.email,
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,
@@ -336,7 +346,8 @@ export function productOf(w: WebsiteView) {
     contact_email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
-    email_management_url: w.emailManagementUrl || null,
+    email_management_url:
+      w.emailManagementUrl || DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     submission_readiness: submissionReadiness(w),
   };
 }

@@ -4,14 +4,25 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-18 — Shared default submission account
+
+This installation uses `wldesign1983@gmail.com` for registration, Google login
+and verification mail by default. `src/config/submission-account.ts` contains the
+shared account and its Gmail URL. New-project forms inherit these defaults while
+leaving the public contact email empty for each project to fill separately.
+Existing profiles without explicit login/inbox settings inherit the same account
+at read/claim time; their public contact email is never changed. Existing task
+identity snapshots remain untouched. Update copied agent jobs after deployment.
+No additional schema changes are needed for this default policy.
+
 ## 2026-11-18 — Separate public contact, login identity and verification inbox
 
 Website `email` remains the public contact. New `registrationEmail`,
 `registrationEmailCapability` and `verificationInboxEmail` fields configure
 the external login and the mailbox receiving codes. Set a personal Gmail as
 the login/inbox to reuse that account's signed-in browser session while keeping
-support@... as the public contact. Existing profiles without a login override
-retain their previous email fallback. The mailbox URL only chooses where to
+support@... as the public contact. Profiles without a login override now use
+the shared default described above. The mailbox URL only chooses where to
 read mail; it does not authorize another login account.
 
 - **Schema:** port the three new `website` columns from `schema.sqlite.ts`.

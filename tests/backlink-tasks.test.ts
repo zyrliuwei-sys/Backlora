@@ -53,8 +53,15 @@ const { startTask, reportResult, heartbeat, getTask } =
 const { retryRecords, createRecord } =
   await import('../src/modules/backlinks/records');
 const { applyFailureReason } = await import('../src/modules/backlinks/library');
-const { sanitizeWebsiteInput, requireWebsite, productOf, updateWebsite } =
-  await import('../src/modules/backlinks/websites');
+const {
+  sanitizeWebsiteInput,
+  requireWebsite,
+  productOf,
+  updateWebsite,
+  createWebsite,
+} = await import('../src/modules/backlinks/websites');
+const { DEFAULT_SUBMISSION_ACCOUNT } =
+  await import('../src/config/submission-account');
 after(async () => {
   await disposeD1?.();
   await rm(directory, { recursive: true, force: true });
@@ -143,6 +150,8 @@ test('task mailbox identity is snapshotted and receive-only blockers are explici
     .set({
       email: 'support@product.example',
       emailCapability: 'receive_only',
+      registrationEmail: 'support@product.example',
+      registrationEmailCapability: 'receive_only',
       emailManagementUrl: 'https://mail.google.com/mail/u/0/#inbox',
     })
     .where(eq(website.id, id));
@@ -213,6 +222,54 @@ test('personal login and verification inbox stay separate from public contact ac
   const retried = (await claim(id)).task!;
   assert.equal(retried.product.submission_email, 'owner@gmail.com');
   assert.equal(retried.product.contact_email, 'support@product.example');
+});
+
+test('existing and new projects share the default Gmail without sharing public contact emails', async () => {
+  const id = await fixture();
+  await db()
+    .update(website)
+    .set({ email: 'support@first.example', emailCapability: 'receive_only' })
+    .where(eq(website.id, id));
+  await db()
+    .update(website)
+    .set({ email: 'hello@second.example' })
+    .where(eq(website.id, `${id}-other`));
+  const first = productOf(await requireWebsite(id, id));
+  const second = productOf(await requireWebsite(id, `${id}-other`));
+  for (const product of [first, second]) {
+    assert.equal(product.registration_email, DEFAULT_SUBMISSION_ACCOUNT.email);
+    assert.equal(
+      product.verification_inbox_email,
+      DEFAULT_SUBMISSION_ACCOUNT.email
+    );
+    assert.equal(
+      product.email_management_url,
+      DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl
+    );
+    assert.equal(product.email_capability, 'send_capable');
+  }
+  assert.equal(first.contact_email, 'support@first.example');
+  assert.equal(second.contact_email, 'hello@second.example');
+  const task = (await claim(id)).task!;
+  assert.equal(task.product.submission_email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(task.product.contact_email, 'support@first.example');
+
+  const fresh = await createWebsite(id, {
+    url: 'https://third.example',
+    shortDesc: 'New project',
+  });
+  assert.equal(fresh.email, '');
+  assert.equal(fresh.registrationEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(fresh.verificationInboxEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  const saved = await updateWebsite(id, fresh.id, {
+    ...fresh,
+    email: 'team@third.example',
+  });
+  assert.equal(saved.email, 'team@third.example');
+  assert.equal(
+    productOf(saved).registration_email,
+    DEFAULT_SUBMISSION_ACCOUNT.email
+  );
 });
 
 test('fresh pending records capture the login email while legacy attempts require identity review', async () => {
