@@ -11,7 +11,7 @@ import { respData } from '@/lib/resp';
 
 /**
  * 添加外链. Body: `{ scope: 'plaza'|'personal', set }`, `{ ids }` or
- * `{ urls }`. Targets the website already has are skipped.
+ * `{ urls }`, or `{ batchIds }`. Targets the website already has are skipped.
  */
 const POST = withSession(async ({ request, params, userId }) => {
   const body = await readJson(request);
@@ -20,6 +20,7 @@ const POST = withSession(async ({ request, params, userId }) => {
       scope: body.scope === 'personal' ? 'personal' : 'plaza',
       set: body.set,
       ids: body.ids ? idList(body.ids) : undefined,
+      batchIds: body.batchIds ? idList(body.batchIds) : undefined,
       urls: body.urls ? urlList(body.urls) : undefined,
     })
   );

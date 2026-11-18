@@ -3,16 +3,21 @@ import {
   count,
   desc,
   eq,
+  exists,
+  getTableColumns,
   inArray,
+  isNull,
   like,
   ne,
+  notExists,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import { db } from '@/core/db';
-import { atomic } from '@/core/db/atomic';
+import { atomic, AtomicGuardError, guard } from '@/core/db/atomic';
 import {
   BACKLINK_CATEGORIES,
   BACKLINK_STATUSES,
@@ -29,6 +34,7 @@ import {
 } from '@/config/backlinks';
 import {
   backlink,
+  backlinkImportBatch,
   userBacklink,
   type Backlink,
   type NewBacklink,
@@ -117,6 +123,28 @@ function filterConditions(f: LibraryFilter): SQL[] {
 
 const publicOnly = eq(backlink.visibility, 'public');
 
+async function uniqueBacklinkWrite<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    for (
+      let cause: unknown = error;
+      cause instanceof Error;
+      cause = cause.cause
+    ) {
+      if (
+        cause instanceof AtomicGuardError ||
+        /UNIQUE constraint failed: (?:backlink\.owner_user_id, )?backlink\.link\b/.test(
+          cause.message
+        )
+      ) {
+        throw new BacklinkError('This URL is already saved', 409);
+      }
+    }
+    throw error;
+  }
+}
+
 // ─── Plaza (public library) ─────────────────────────────────────────────────
 
 export async function listPlaza(
@@ -168,17 +196,21 @@ export async function createPublicBacklink(body: any) {
       ownerUserId: null,
       ...input,
     })
+    .onConflictDoNothing()
     .returning();
+  if (!row) throw new BacklinkError('This URL is already saved', 409);
   return viewBacklink(row);
 }
 
 export async function updatePublicBacklink(id: string, body: any) {
   const input = sanitizeBacklinkInput(body);
-  const [row]: Backlink[] = await db()
-    .update(backlink)
-    .set(input)
-    .where(and(eq(backlink.id, id), publicOnly))
-    .returning();
+  const [row]: Backlink[] = await uniqueBacklinkWrite(async () =>
+    db()
+      .update(backlink)
+      .set(input)
+      .where(and(eq(backlink.id, id), publicOnly))
+      .returning()
+  );
   if (!row) throw new BacklinkError('Not found', 404);
   return viewBacklink(row);
 }
@@ -249,37 +281,16 @@ export function parseLibraryCsv(text: string) {
   return { rows, invalid };
 }
 
-/** Bulk-add public entries; links already in the plaza are skipped. */
-export async function importPlaza(text: string) {
+/** Import legacy library CSV into the caller's own library. */
+export async function importLibraryCsv(userId: string, text: string) {
   const { rows, invalid } = parseLibraryCsv(text);
-  const unique = new Map(rows.map((r) => [r.link, r]));
-  const existing = new Set<string>();
-  for (const part of chunk([...unique.keys()], IN_CHUNK)) {
-    const found: { link: string }[] = await db()
-      .select({ link: backlink.link })
-      .from(backlink)
-      .where(and(publicOnly, inArray(backlink.link, part)));
-    for (const f of found) existing.add(f.link);
+  const entries = [...new Map(rows.map((r) => [r.link, r])).values()];
+  let created = 0;
+  for (const part of chunk(entries, MAX_ADD_BATCH)) {
+    const ids = await ensureLibraryEntries(userId, part);
+    created += (await addToMine(userId, ids)).added;
   }
-  const fresh = [...unique.values()].filter((r) => !existing.has(r.link));
-  // ~19 columns per row → 4 rows per statement keeps under 100 params.
-  for (const part of chunk(fresh, 4)) {
-    await db()
-      .insert(backlink)
-      .values(
-        part.map((r) => ({
-          id: getUuid(),
-          visibility: 'public',
-          ownerUserId: null,
-          ...r,
-        }))
-      );
-  }
-  return {
-    created: fresh.length,
-    skipped: rows.length - fresh.length,
-    invalid,
-  };
+  return { created, skipped: rows.length - created, invalid };
 }
 
 export async function allPlaza(): Promise<BacklinkView[]> {
@@ -429,6 +440,8 @@ export async function listMine(
     search?: string;
     quality?: string;
     enabled?: string;
+    batch?: string;
+    category?: string;
   }
 ) {
   const c: SQL[] = [eq(userBacklink.userId, userId)];
@@ -444,8 +457,12 @@ export async function listMine(
     );
   }
   if (oneOf(f.quality, QUALITIES)) c.push(eq(userBacklink.quality, f.quality));
+  if (oneOf(f.category, BACKLINK_CATEGORIES))
+    c.push(eq(backlink.category, f.category));
   if (f.enabled === 'enabled') c.push(eq(userBacklink.enabled, true));
   if (f.enabled === 'disabled') c.push(eq(userBacklink.enabled, false));
+  if (f.batch === 'unbatched') c.push(isNull(userBacklink.batchId));
+  else if (f.batch) c.push(eq(userBacklink.batchId, f.batch));
   const where = and(...c);
 
   const [{ total }] = await db()
@@ -460,7 +477,7 @@ export async function listMine(
       .from(userBacklink)
       .innerJoin(backlink, eq(backlink.id, userBacklink.backlinkId))
       .where(where)
-      .orderBy(desc(userBacklink.createdAt))
+      .orderBy(desc(userBacklink.createdAt), userBacklink.id)
       .limit(limit)
       .offset(offset);
   return {
@@ -478,58 +495,147 @@ export async function listMine(
   };
 }
 
-/** Add public entries to the user's library (already-saved ones are kept). */
+export async function listImportBatches(
+  userId: string,
+  page: number,
+  pageSize: number,
+  enabledOnly = false
+): Promise<{
+  list: { id: string; name: string; count: number }[];
+  total: number;
+  unbatched: number;
+}> {
+  const owner = eq(backlinkImportBatch.userId, userId);
+  const member = and(
+    eq(userBacklink.userId, userId),
+    enabledOnly ? eq(userBacklink.enabled, true) : undefined
+  );
+  const { limit, offset } = pageOf(page, pageSize);
+  const [list, [{ total }], [{ unbatched }]] = await Promise.all([
+    db()
+      .select({
+        id: backlinkImportBatch.id,
+        name: backlinkImportBatch.name,
+        count: count(userBacklink.id),
+      })
+      .from(backlinkImportBatch)
+      .leftJoin(
+        userBacklink,
+        and(eq(userBacklink.batchId, backlinkImportBatch.id), member)
+      )
+      .where(owner)
+      .groupBy(backlinkImportBatch.id)
+      .orderBy(
+        desc(backlinkImportBatch.createdAt),
+        desc(backlinkImportBatch.id)
+      )
+      .limit(limit)
+      .offset(offset),
+    db().select({ total: count() }).from(backlinkImportBatch).where(owner),
+    db()
+      .select({ unbatched: count() })
+      .from(userBacklink)
+      .where(and(member, isNull(userBacklink.batchId))),
+  ]);
+  return { list, total, unbatched };
+}
+
+/** Resolve whole batches from the caller's currently enabled library. */
+export async function resolveImportBatches(userId: string, batchIds: string[]) {
+  if (!batchIds.length) throw new BacklinkError('Select at least one batch');
+  const named = batchIds.filter((id) => id !== 'unbatched');
+  const byName = named.length
+    ? sql`${userBacklink.batchId} in (
+        select ${backlinkImportBatch.id} from ${backlinkImportBatch}
+        where ${backlinkImportBatch.userId} = ${userId}
+          and ${backlinkImportBatch.id} in (select value from json_each(${JSON.stringify(named)}))
+      )`
+    : undefined;
+  const group = or(
+    byName,
+    batchIds.includes('unbatched') ? isNull(userBacklink.batchId) : undefined
+  );
+  const rows: { id: string }[] = await db()
+    .select({ id: userBacklink.backlinkId })
+    .from(userBacklink)
+    .where(
+      and(
+        eq(userBacklink.userId, userId),
+        eq(userBacklink.enabled, true),
+        group
+      )
+    )
+    .limit(MAX_ADD_BATCH + 1);
+  if (rows.length > MAX_ADD_BATCH)
+    throw new BacklinkError(
+      `Selected batches exceed the ${MAX_ADD_BATCH} backlink limit`
+    );
+  return rows.map((row) => row.id);
+}
+
+/** Skip a URL already saved through another catalog entry as well as the same ID. */
+function libraryMembershipInsert(
+  q: ReturnType<typeof db>,
+  userId: string,
+  ids: string[],
+  batchId: string | null = null
+) {
+  const saved = alias(backlink, 'saved_backlink');
+  const membership = q
+    .select({ id: userBacklink.id })
+    .from(userBacklink)
+    .where(
+      and(
+        eq(userBacklink.userId, userId),
+        eq(userBacklink.backlinkId, saved.id)
+      )
+    );
+  // Find catalog IDs by URL first, then look up their memberships by ID.
+  const existing = q
+    .select({ id: saved.id })
+    .from(saved)
+    .where(
+      and(
+        eq(saved.link, backlink.link),
+        // A named import may group the original unbatched membership in place.
+        batchId ? ne(saved.id, backlink.id) : undefined,
+        exists(membership)
+      )
+    );
+  const now = Date.now();
+  return q.insert(userBacklink).select(
+    q
+      .select({
+        id: sql`lower(hex(randomblob(16)))`,
+        userId: sql`${userId}`,
+        backlinkId: sql`min(${backlink.id})`,
+        batchId: sql`${batchId}`,
+        source: sql`'favorite'`,
+        quality: sql`'unrated'`,
+        notes: sql`''`,
+        enabled: sql`1`,
+        createdAt: sql`${now}`,
+        updatedAt: sql`${now}`,
+      })
+      .from(backlink)
+      .where(
+        and(
+          sql`${backlink.id} in (select value from json_each(${JSON.stringify(ids)}))`,
+          or(publicOnly, eq(backlink.ownerUserId, userId)),
+          notExists(existing)
+        )
+      )
+      .groupBy(backlink.link)
+  );
+}
+
 export async function addToMine(userId: string, backlinkIds: string[]) {
   const ids = [...new Set(backlinkIds)].slice(0, MAX_ADD_BATCH);
-  const parts = chunk(ids, IN_CHUNK);
-  const [visible, saved] = await Promise.all([
-    Promise.all(
-      parts.map(
-        (part) =>
-          db()
-            .select({ id: backlink.id })
-            .from(backlink)
-            .where(
-              and(
-                inArray(backlink.id, part),
-                or(publicOnly, eq(backlink.ownerUserId, userId))
-              )
-            ) as Promise<{ id: string }[]>
-      )
-    ),
-    Promise.all(
-      parts.map(
-        (part) =>
-          db()
-            .select({ id: userBacklink.backlinkId })
-            .from(userBacklink)
-            .where(
-              and(
-                eq(userBacklink.userId, userId),
-                inArray(userBacklink.backlinkId, part)
-              )
-            ) as Promise<{ id: string }[]>
-      )
-    ),
-  ]);
-  const savedIds = new Set(saved.flat().map((r) => r.id));
-  const fresh = visible.flat().filter((v) => !savedIds.has(v.id));
-  // 7 bound params per row (column defaults are bound too) → 14 rows keeps
-  // under D1's 100.
-  await writeBatched(chunk(fresh, 14), (q, rows) =>
-    q
-      .insert(userBacklink)
-      .values(
-        rows.map((r) => ({
-          id: getUuid(),
-          userId,
-          backlinkId: r.id,
-          source: 'favorite',
-        }))
-      )
-      .onConflictDoNothing()
-  );
-  return { added: fresh.length };
+  if (!ids.length) return { added: 0 };
+  const inserted = await libraryMembershipInsert(db(), userId, ids)
+    .onConflictDoNothing()
+    .returning({ id: userBacklink.id });
+  return { added: inserted.length };
 }
 
 /** Toggle a plaza entry in/out of the user's library. */
@@ -562,25 +668,43 @@ function personalFields(body: any) {
   };
 }
 
+function requireUnsavedUrl(userId: string, link: string, exceptId?: string) {
+  return guard({
+    table: userBacklink,
+    column: 'userId',
+    where: and(
+      eq(userBacklink.userId, userId),
+      exceptId ? ne(userBacklink.backlinkId, exceptId) : undefined,
+      sql`exists (select 1 from ${backlink}
+        where ${backlink.id} = ${userBacklink.backlinkId} and ${backlink.link} = ${link})`
+    ),
+    require: sql`0 = 1`,
+    message: 'This URL is already saved',
+  });
+}
+
 /** A private entry only this user sees, saved straight into their library. */
 export async function createOwn(userId: string, body: any) {
   const input = sanitizeBacklinkInput({ ...body, status: 'pending' });
   const id = getUuid();
-  await atomic((q) => [
-    q.insert(backlink).values({
-      id,
-      ownerUserId: userId,
-      visibility: 'private',
-      ...input,
-    }),
-    q.insert(userBacklink).values({
-      id: getUuid(),
-      userId,
-      backlinkId: id,
-      source: 'own',
-      ...personalFields(body),
-    }),
-  ]);
+  await uniqueBacklinkWrite(() =>
+    atomic((q) => [
+      requireUnsavedUrl(userId, input.link),
+      q.insert(backlink).values({
+        id,
+        ownerUserId: userId,
+        visibility: 'private',
+        ...input,
+      }),
+      q.insert(userBacklink).values({
+        id: getUuid(),
+        userId,
+        backlinkId: id,
+        source: 'own',
+        ...personalFields(body),
+      }),
+    ])
+  );
   return { id };
 }
 
@@ -595,42 +719,39 @@ export async function updateMine(
 ) {
   const row = await getBacklink(backlinkId);
   if (!row) throw new BacklinkError('Not found', 404);
-  const owner = row.ownerUserId === userId;
-  await atomic((q) => [
-    owner &&
+  const input =
+    row.ownerUserId === userId
+      ? sanitizeBacklinkInput({ ...body, status: row.status })
+      : null;
+  await uniqueBacklinkWrite(() =>
+    atomic((q) => [
+      input &&
+        input.link !== row.link &&
+        requireUnsavedUrl(userId, input.link, backlinkId),
+      input && q.update(backlink).set(input).where(eq(backlink.id, backlinkId)),
       q
-        .update(backlink)
-        .set(sanitizeBacklinkInput({ ...body, status: row.status }))
-        .where(eq(backlink.id, backlinkId)),
-    q
-      .update(userBacklink)
-      .set(personalFields(body))
-      .where(
-        and(
-          eq(userBacklink.userId, userId),
-          eq(userBacklink.backlinkId, backlinkId)
-        )
-      ),
-  ]);
+        .update(userBacklink)
+        .set(personalFields(body))
+        .where(
+          and(
+            eq(userBacklink.userId, userId),
+            eq(userBacklink.backlinkId, backlinkId)
+          )
+        ),
+    ])
+  );
 }
 
-/** Remove from the library; a private entry of the user is deleted too. */
+/** Remove the library membership while preserving linked website records. */
 export async function removeMine(userId: string, backlinkId: string) {
-  await atomic((q) => [
-    q
-      .delete(userBacklink)
-      .where(
-        and(
-          eq(userBacklink.userId, userId),
-          eq(userBacklink.backlinkId, backlinkId)
-        )
-      ),
-    q
-      .delete(backlink)
-      .where(
-        and(eq(backlink.id, backlinkId), eq(backlink.ownerUserId, userId))
-      ),
-  ]);
+  await db()
+    .delete(userBacklink)
+    .where(
+      and(
+        eq(userBacklink.userId, userId),
+        eq(userBacklink.backlinkId, backlinkId)
+      )
+    );
 }
 
 export async function clearMine(userId: string) {
@@ -647,51 +768,129 @@ export async function clearMine(userId: string) {
 export async function ensureEntriesForUrls(
   userId: string,
   urls: string[]
-): Promise<{ ids: string[]; invalid: number }> {
+): Promise<{ ids: string[]; invalid: number; duplicates: number }> {
   const normalized = new Set<string>();
   let invalid = 0;
+  let duplicates = 0;
   const lines = urls.slice(0, MAX_ADD_BATCH).map((u) => u.trim());
-  const hasScheme = (u: string | undefined) => !!u && /^https?:\/\//i.test(u);
-  for (const [i, u] of lines.entries()) {
-    // Lists often pair a label line (`example.com`) with the submission URL
-    // below it; the label is not a page to submit to.
-    if (u && !hasScheme(u) && hasScheme(lines[i + 1])) continue;
+  for (const u of lines) {
+    if (!u) continue;
     const n = normalizeUrl(u);
-    if (n) normalized.add(n);
-    else if (u.trim()) invalid++;
+    if (!n || n.length > 1000) invalid++;
+    else if (normalized.has(n)) duplicates++;
+    else normalized.add(n);
   }
-  const links = [...normalized];
+  const ids = await ensureLibraryEntries(
+    userId,
+    [...normalized].map((link) =>
+      sanitizeBacklinkInput({ link, status: 'pending' })
+    )
+  );
+  return { ids, invalid, duplicates };
+}
+
+async function ensureLibraryEntries(
+  userId: string,
+  inputs: ReturnType<typeof sanitizeBacklinkInput>[]
+) {
+  const visible = or(publicOnly, eq(backlink.ownerUserId, userId));
+  const now = Date.now();
+  const fields = sql.join(
+    Object.keys(getTableColumns(backlink)).map(
+      (key) => sql`json_extract(candidate.value, ${'$.'.concat(key)})`
+    ),
+    sql`, `
+  );
+  // The lookup and conditional insert run in the same SQLite statement, so
+  // concurrent imports of a new URL reuse the same entry.
+  await writeBatched(chunk(inputs, 50), (q, part) => {
+    const values = part.map((input) => ({
+      ...input,
+      id: getUuid(),
+      ownerUserId: userId,
+      visibility: 'private',
+      createdAt: now,
+      updatedAt: now,
+    }));
+    return q.insert(backlink).select(sql`
+      select ${fields}
+      from json_each(${JSON.stringify(values)}) as candidate
+      where not exists (
+        select 1 from ${backlink}
+        where ${backlink.link} = json_extract(candidate.value, '$.link')
+          and ${visible}
+      )
+    `);
+  });
+
+  const links = inputs.map((input) => input.link);
   const byLink = new Map<string, string>();
   for (const part of chunk(links, IN_CHUNK)) {
     const found: { id: string; link: string }[] = await db()
       .select({ id: backlink.id, link: backlink.link })
       .from(backlink)
-      .where(
+      .leftJoin(
+        userBacklink,
         and(
-          inArray(backlink.link, part),
-          or(publicOnly, eq(backlink.ownerUserId, userId))
+          eq(userBacklink.userId, userId),
+          eq(userBacklink.backlinkId, backlink.id)
         )
-      );
+      )
+      .where(and(inArray(backlink.link, part), visible))
+      .orderBy(desc(sql`${userBacklink.id} is not null`), backlink.id);
     for (const f of found) if (!byLink.has(f.link)) byLink.set(f.link, f.id);
   }
-  const fresh = links.filter((l) => !byLink.has(l));
-  for (const part of chunk(fresh, 4)) {
-    const values = part.map((link) => ({
-      id: getUuid(),
-      ownerUserId: userId,
-      visibility: 'private',
-      ...sanitizeBacklinkInput({ link, status: 'pending' }),
-    }));
-    await db().insert(backlink).values(values);
-    for (const v of values) byLink.set(v.link, v.id);
-  }
-  return { ids: links.map((l) => byLink.get(l)!), invalid };
+  return links.flatMap((link) => {
+    const id = byLink.get(link);
+    return id ? [id] : [];
+  });
+}
+
+async function saveNamedImport(userId: string, name: string, ids: string[]) {
+  if (!ids.length) return { added: 0 };
+  const owner = eq(backlinkImportBatch.userId, userId);
+  const noLinks = sql`not exists (
+    select 1 from ${userBacklink}
+    where ${userBacklink.userId} = ${userId}
+      and ${userBacklink.batchId} = ${backlinkImportBatch.id}
+  )`;
+  const [emptyBatch]: { id: string }[] = await db()
+    .select({ id: backlinkImportBatch.id })
+    .from(backlinkImportBatch)
+    .where(and(owner, eq(backlinkImportBatch.name, name), noLinks))
+    .orderBy(desc(backlinkImportBatch.createdAt), desc(backlinkImportBatch.id))
+    .limit(1);
+  const batchId = emptyBatch?.id ?? getUuid();
+  await atomic((q) => [
+    !emptyBatch &&
+      q.insert(backlinkImportBatch).values({ id: batchId, userId, name }),
+    libraryMembershipInsert(q, userId, ids, batchId).onConflictDoUpdate({
+      target: [userBacklink.userId, userBacklink.backlinkId],
+      set: { batchId },
+      setWhere: isNull(userBacklink.batchId),
+    }),
+    !emptyBatch &&
+      q
+        .delete(backlinkImportBatch)
+        .where(and(owner, eq(backlinkImportBatch.id, batchId), noLinks)),
+  ]);
+  const [{ added }] = await db()
+    .select({ added: count() })
+    .from(userBacklink)
+    .where(
+      and(
+        eq(userBacklink.userId, userId),
+        eq(userBacklink.batchId, batchId),
+        sql`${userBacklink.backlinkId} in (select value from json_each(${JSON.stringify(ids)}))`
+      )
+    );
+  return { added };
 }
 
 /** 批量导入: a set from the plaza, picked plaza ids, or pasted URLs. */
 export async function importToMine(
   userId: string,
-  body: { set?: SetSpec; ids?: string[]; urls?: string[] }
+  body: { set?: SetSpec; ids?: string[]; urls?: string[]; batchName?: string }
 ) {
   if (body.set) {
     return addToMine(userId, await resolveSet(userId, 'plaza', body.set));
@@ -699,7 +898,17 @@ export async function importToMine(
   if (body.ids) return addToMine(userId, body.ids);
   if (body.urls) {
     const { ids, invalid } = await ensureEntriesForUrls(userId, body.urls);
-    return { ...(await addToMine(userId, ids)), invalid };
+    const { added } = body.batchName
+      ? await saveNamedImport(userId, body.batchName, ids)
+      : await addToMine(userId, ids);
+    const submitted = body.urls
+      .slice(0, MAX_ADD_BATCH)
+      .filter((url) => url.trim()).length;
+    return {
+      added,
+      invalid,
+      skipped: Math.max(0, submitted - invalid - added),
+    };
   }
   throw new BacklinkError('Nothing to import');
 }

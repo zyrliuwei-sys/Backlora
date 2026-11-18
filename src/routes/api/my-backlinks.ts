@@ -12,6 +12,8 @@ const GET = withSession(async ({ request, userId }) => {
     search,
     quality: sp.get('quality') || undefined,
     enabled: sp.get('enabled') || undefined,
+    batch: sp.get('batch') || undefined,
+    category: sp.get('category') || undefined,
   });
   return respData({ list, pagination: { page, pageSize, total } });
 });

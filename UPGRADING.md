@@ -4,6 +4,36 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-18 — Deduplicate imported backlink URLs
+
+Apply the unique backlink URL indexes before deploying. The migration adds
+indexes and preserves all rows. If the same URL already occurs twice for an
+owner or in the shared catalog, review those records before migrating.
+
+Imports compare normalized URLs to the importing user's library, including
+when a shared catalog entry and a private entry have the same URL. An earlier
+unbatched entry can still join a named batch without creating another entry.
+
+## 2026-11-18 — Select entire backlink batches
+
+The website's personal-library picker now selects entire batches, including
+the unbatched group. Only enabled links are added, and URLs already tracked
+by the website are skipped. Reimporting a named list groups any matching
+unbatched URLs. Use the same name and original URLs to fill an empty batch
+created by an older import. No schema change is required.
+
+## 2026-11-18 — Personal backlink library and import batches
+
+Apply the additive backlink import batch migration before deploying. Named URL
+imports are listed with their current link count. Older entries have no saved
+batch name and appear under Unbatched links. Removing a library entry leaves
+existing website records intact. Website URL and tracking CSV imports also
+save their target URLs in the importing user's library.
+
+The dashboard now opens the personal library when adding backlinks to a
+website. Backlink Plaza, Quick Open and Backlink Logs have been removed
+from the dashboard. The old plaza page redirects to My Library.
+
 ## 2026-11-18 — Preflight company eligibility and recover the right failure
 
 Prompts now distinguish missing company facts, official partner reciprocal links,

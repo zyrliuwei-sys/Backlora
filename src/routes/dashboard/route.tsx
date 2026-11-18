@@ -1,14 +1,5 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
-import {
-  Globe,
-  LayoutDashboard,
-  Library,
-  Link2,
-  ListChecks,
-  PanelTopOpen,
-  Search,
-  Settings,
-} from 'lucide-react';
+import { Globe, LayoutDashboard, Library, Link2, Settings } from 'lucide-react';
 
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
@@ -29,11 +20,6 @@ function DashboardLayout() {
       icon: LayoutDashboard,
     },
     {
-      href: '/dashboard/backlinks',
-      label: m['dash.nav.plaza'](),
-      icon: Search,
-    },
-    {
       href: '/dashboard/my-backlinks',
       label: m['dash.nav.my_backlinks'](),
       icon: Library,
@@ -47,16 +33,6 @@ function DashboardLayout() {
       href: '/dashboard/website-backlinks',
       label: m['dash.nav.tracking'](),
       icon: Link2,
-    },
-    {
-      href: '/dashboard/quick-open',
-      label: m['dash.nav.quick_open'](),
-      icon: PanelTopOpen,
-    },
-    {
-      href: '/dashboard/backlink-logs',
-      label: m['dash.nav.logs'](),
-      icon: ListChecks,
     },
     {
       href: '/dashboard/settings',

@@ -176,7 +176,6 @@ function NewWebsitePage() {
           <CardContent>
             <AddBacklinksPanel
               target={{
-                kind: 'website',
                 websiteId: siteId,
                 websiteName: form.name,
               }}

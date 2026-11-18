@@ -57,7 +57,9 @@ yarn-error.log*
 
 # database
 /data/
-/drizzle/
+/drizzle/*
+!/drizzle/0004_backlink_import_batches.sql
+!/drizzle/0005_unique_backlink_urls.sql
 src/config/db/schema.ts
 
 # npm (project uses pnpm)

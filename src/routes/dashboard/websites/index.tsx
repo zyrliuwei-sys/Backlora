@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   RotateCcw,
-  ScrollText,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -134,7 +133,6 @@ function WebsitesPage() {
   const rows = list.data?.list ?? [];
   const recordsHref = (id: string) =>
     `/dashboard/website-backlinks?websiteId=${id}`;
-  const logsHref = (id: string) => `/dashboard/backlink-logs?websiteId=${id}`;
   const showingDeleted = status === 'deleted';
   const askPurge = async (w: Website) => {
     if (
@@ -273,14 +271,6 @@ function WebsitesPage() {
                         <Link2 className="size-3.5" />
                         {m['dash.websites.records']()}
                       </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-0.5 hover:underline"
-                        onClick={() => router.push(logsHref(w.id))}
-                      >
-                        <ScrollText className="size-3.5" />
-                        {m['dash.websites.logs']()}
-                      </button>
                     </div>
                   )}
                 </TableCell>
@@ -397,12 +387,6 @@ function WebsitesPage() {
                           <Link2 />
                           {m['dash.websites.records']()}
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => router.push(logsHref(w.id))}
-                        >
-                          <ScrollText />
-                          {m['dash.websites.logs']()}
-                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
@@ -440,7 +424,6 @@ function WebsitesPage() {
           open={!!addFor}
           onOpenChange={(v) => !v && setAddFor(null)}
           target={{
-            kind: 'website',
             websiteId: addFor.id,
             websiteName: addFor.name,
           }}

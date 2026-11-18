@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `uq_backlink_owner_link` ON `backlink` (`owner_user_id`,`link`);--> statement-breakpoint
+CREATE UNIQUE INDEX `uq_backlink_public_link` ON `backlink` (`link`) WHERE "backlink"."owner_user_id" is null;

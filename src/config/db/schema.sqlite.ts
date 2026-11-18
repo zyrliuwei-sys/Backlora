@@ -851,6 +851,27 @@ export const backlink = table(
     index('idx_backlink_visibility_category').on(t.visibility, t.category),
     index('idx_backlink_owner').on(t.ownerUserId),
     index('idx_backlink_link').on(t.link),
+    uniqueIndex('uq_backlink_owner_link').on(t.ownerUserId, t.link),
+    uniqueIndex('uq_backlink_public_link')
+      .on(t.link)
+      .where(sql`${t.ownerUserId} is null`),
+  ]
+);
+
+export const backlinkImportBatch = table(
+  'backlink_import_batch',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+  },
+  (t) => [
+    index('idx_backlink_import_batch_user_created').on(t.userId, t.createdAt),
   ]
 );
 
@@ -864,6 +885,9 @@ export const userBacklink = table(
     backlinkId: text('backlink_id')
       .notNull()
       .references(() => backlink.id, { onDelete: 'cascade' }),
+    batchId: text('batch_id').references(() => backlinkImportBatch.id, {
+      onDelete: 'set null',
+    }),
     source: text('source').notNull().default('favorite'), // favorite | own
     quality: text('quality').notNull().default('unrated'),
     notes: text('notes').notNull().default(''),
@@ -879,6 +903,7 @@ export const userBacklink = table(
   (t) => [
     uniqueIndex('uq_user_backlink').on(t.userId, t.backlinkId),
     index('idx_user_backlink_backlink').on(t.backlinkId),
+    index('idx_user_backlink_user_batch').on(t.userId, t.batchId),
   ]
 );
 

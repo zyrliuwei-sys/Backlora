@@ -6,10 +6,8 @@ import { Link } from '@/core/i18n/navigation';
 import {
   AUTOMATION_CONTAINERS,
   BACKLINK_CATEGORIES,
-  DATA_SOURCES,
   TASK_SCOPES,
   type AutomationContainer,
-  type DataSource,
   type TaskScope,
 } from '@/config/backlinks';
 import { apiGet, type PageResult } from '@/lib/api-client';
@@ -55,10 +53,11 @@ interface ApiKeyRow {
 }
 
 const AUTO = '__auto__';
+const SOURCES = ['website', 'personal'] as const;
+type Source = (typeof SOURCES)[number];
 
-const sourceLabel: Record<DataSource, () => string> = {
+const sourceLabel: Record<Source, () => string> = {
   website: m['dash.codex.source_website'],
-  plaza: m['dash.codex.source_plaza'],
   personal: m['dash.codex.source_personal'],
 };
 const scopeLabel: Record<TaskScope, () => string> = {
@@ -116,11 +115,11 @@ export function CodexDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   websiteId?: string | null;
-  defaultSource?: DataSource;
+  defaultSource?: Source;
 }) {
   const [keyId, setKeyId] = useState('');
   const [siteId, setSiteId] = useState<string>(initialWebsiteId ?? AUTO);
-  const [dataSource, setDataSource] = useState<DataSource>(defaultSource);
+  const [dataSource, setDataSource] = useState<Source>(defaultSource);
   const [category, setCategory] = useState('all');
   const [num, setNum] = useState(10);
   const [scope, setScope] = useState<TaskScope>('recommended');
@@ -310,7 +309,7 @@ export function CodexDialog({
               label={m['dash.codex.data_source']()}
               value={dataSource}
               onChange={setDataSource}
-              options={DATA_SOURCES.map((s) => ({
+              options={SOURCES.map((s) => ({
                 value: s,
                 label: sourceLabel[s](),
               }))}

@@ -46,13 +46,30 @@ if (process.env.BACKLINK_D1 === '1') {
   disposeD1 = proxy.dispose;
 }
 const { db } = await import('../src/core/db');
-const { user, website, backlink, userBacklink, websiteBacklink } =
-  await import('../src/config/db/schema');
+const {
+  user,
+  website,
+  backlink,
+  backlinkImportBatch,
+  userBacklink,
+  websiteBacklink,
+} = await import('../src/config/db/schema');
 const { startTask, reportResult, heartbeat, getTask } =
   await import('../src/modules/backlinks/tasks');
-const { retryRecords, createRecord } =
+const { addToWebsite, importRecords, retryRecords, createRecord } =
   await import('../src/modules/backlinks/records');
-const { applyFailureReason } = await import('../src/modules/backlinks/library');
+const {
+  addToMine,
+  applyFailureReason,
+  createOwn,
+  createPublicBacklink,
+  deletePublicBacklink,
+  importLibraryCsv,
+  importToMine,
+  listImportBatches,
+  listMine,
+  removeMine,
+} = await import('../src/modules/backlinks/library');
 const {
   sanitizeWebsiteInput,
   requireWebsite,
@@ -136,6 +153,284 @@ const claim = (id: string, extra = {}) =>
     task_scope: 'all_eligible',
     ...extra,
   });
+
+test('named library imports count unique new links and allow removing them without unlinking websites', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  const first = 'https://batch.example.test/first';
+  const second = 'https://batch.example.test/second';
+  const result = await importToMine(id, {
+    batchName: 'New directories',
+    urls: [first, second, first, 'bad'],
+  });
+  assert.deepEqual(result, { added: 2, invalid: 1, skipped: 1 });
+  const batches = await listImportBatches(id, 1, 10);
+  assert.equal(batches.total, 1);
+  assert.equal(batches.unbatched, 1);
+  const [batch] = batches.list;
+  assert.equal(batch.name, 'New directories');
+  assert.equal(batch.count, 2);
+  const query = {
+    pageSize: 1,
+    batch: batch.id,
+    enabled: 'enabled',
+    category: 'other',
+  };
+  const page1 = await listMine(id, { ...query, page: 1 });
+  const page2 = await listMine(id, { ...query, page: 2 });
+  assert.equal(page1.total, 2);
+  assert.deepEqual(
+    new Set([...page1.list, ...page2.list].map((link) => link.link)),
+    new Set([first, second])
+  );
+  assert.equal((await listMine(other, { ...query, page: 1 })).total, 0);
+  assert.equal((await listImportBatches(other, 1, 10)).total, 0);
+
+  const [{ id: backlinkId }] = page1.list;
+  await addToWebsite(id, id, { ids: [backlinkId] });
+  await removeMine(other, backlinkId);
+  assert.equal((await listImportBatches(id, 1, 10)).list[0].count, 2);
+  await removeMine(id, backlinkId);
+  assert.equal((await listImportBatches(id, 1, 10)).list[0].count, 1);
+  const [record] = await db()
+    .select()
+    .from(websiteBacklink)
+    .where(eq(websiteBacklink.websiteId, id));
+  assert.equal(record.backlinkId, backlinkId);
+});
+
+test('website URL and CSV imports save target URLs to the personal library', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  const fromWebsite = 'https://website-import.example.test/target';
+  const fromHistory = 'https://tracking-import.example.test/target';
+  const fromLegacy = 'https://library-import.example.test/target';
+  await assert.rejects(
+    addToWebsite(id, other, { urls: [fromWebsite] }),
+    /Website not found/
+  );
+  assert.equal(
+    (await listMine(id, { page: 1, pageSize: 10, search: fromWebsite })).total,
+    0
+  );
+  assert.equal((await addToWebsite(id, id, { urls: [fromWebsite] })).added, 1);
+  assert.equal(
+    (
+      await importRecords(
+        id,
+        `target_url,operation_status\n${fromHistory},live`,
+        id
+      )
+    ).created,
+    1
+  );
+  assert.equal(
+    (await importLibraryCsv(id, `name,url\nDirectory,${fromLegacy}`)).created,
+    1
+  );
+  const { list } = await listMine(id, {
+    page: 1,
+    pageSize: 10,
+    batch: 'unbatched',
+  });
+  assert.deepEqual(
+    new Set(list.map((link) => link.link)),
+    new Set([
+      `https://directory.example.test/${id}`,
+      fromWebsite,
+      fromHistory,
+      fromLegacy,
+    ])
+  );
+  assert.ok(list.every((link) => link.visibility === 'private'));
+});
+
+test('simultaneous named imports of the same URL add it to the library once', async () => {
+  const id = await fixture();
+  const urls = ['https://batch.example.test/shared'];
+  const results = await Promise.all([
+    importToMine(id, { batchName: 'Batch A', urls }),
+    importToMine(id, { batchName: 'Batch B', urls }),
+  ]);
+  assert.deepEqual(results.map((result) => result.added).sort(), [0, 1]);
+  const { list } = await listImportBatches(id, 1, 10);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].count, 1);
+});
+
+test('new imports deduplicate normalized URLs without dropping other paths or query parameters', async () => {
+  const id = await fixture();
+  const base = 'https://dedupe.example.test/submit';
+  assert.deepEqual(
+    await importToMine(id, { batchName: 'Original', urls: [`${base}#old`] }),
+    { added: 1, skipped: 0, invalid: 0 }
+  );
+  assert.deepEqual(
+    await importToMine(id, {
+      batchName: 'Next',
+      urls: [
+        'https://DEDUPE.example.test:443/submit#new',
+        'dedupe.example.test/another',
+        `${base}?plan=free`,
+        'https://dedupe.example.test/another#duplicate',
+      ],
+    }),
+    { added: 2, skipped: 2, invalid: 0 }
+  );
+  const links = await listMine(id, { page: 1, pageSize: 10, search: 'dedupe' });
+  assert.deepEqual(
+    new Set(links.list.map((item) => item.link)),
+    new Set([base, 'https://dedupe.example.test/another', `${base}?plan=free`])
+  );
+  assert.deepEqual(
+    await addToWebsite(id, id, { urls: [base, `${base}#copy`] }),
+    {
+      added: 1,
+      skipped: 1,
+      invalid: 0,
+    }
+  );
+  assert.deepEqual(
+    await addToWebsite(id, id, { urls: [base, `${base}#copy`] }),
+    {
+      added: 0,
+      skipped: 2,
+      invalid: 0,
+    }
+  );
+});
+
+test('catalog IDs with the same URL do not add a second copy to a personal library', async (t) => {
+  const id = await fixture();
+  const other = await fixture();
+  const link = `https://directory.example.test/${id}`;
+  const shared = await createPublicBacklink({ link });
+  t.after(() => deletePublicBacklink(shared.id));
+  assert.deepEqual(await addToMine(id, [shared.id, id]), { added: 0 });
+  assert.equal(
+    (await listMine(id, { page: 1, pageSize: 10, search: link })).total,
+    1
+  );
+  await assert.rejects(createOwn(id, { link }), /URL is already saved/);
+  await assert.rejects(createPublicBacklink({ link }), /URL is already saved/);
+
+  await createOwn(other, { link });
+  assert.deepEqual(await addToMine(other, [shared.id]), { added: 0 });
+  assert.equal(
+    (await listMine(other, { page: 1, pageSize: 10, search: link })).total,
+    1
+  );
+});
+
+test('reimporting an existing unbatched URL fills the matching empty batch', async (t) => {
+  const id = await fixture();
+  const link = `https://directory.example.test/${id}`;
+  const batchId = `${id}-empty`;
+  await db()
+    .insert(backlinkImportBatch)
+    .values({ id: batchId, userId: id, name: 'Saved links' });
+  await db()
+    .update(userBacklink)
+    .set({ notes: 'Kept from the old library', enabled: false })
+    .where(eq(userBacklink.backlinkId, id));
+  const publicId = `00-public-${id}`;
+  await db().insert(backlink).values({
+    id: publicId,
+    visibility: 'public',
+    name: 'Same URL in the public catalog',
+    link,
+    domain: 'directory.example.test',
+  });
+  t.after(async () => {
+    await db().delete(backlink).where(eq(backlink.id, publicId));
+  });
+
+  const result = await importToMine(id, {
+    batchName: 'Saved links',
+    urls: [link],
+  });
+  assert.deepEqual(result, { added: 1, skipped: 0, invalid: 0 });
+  const batches = await listImportBatches(id, 1, 10);
+  assert.deepEqual(batches.list, [
+    { id: batchId, name: 'Saved links', count: 1 },
+  ]);
+  assert.equal(batches.unbatched, 0);
+  const {
+    list: [entry],
+    total,
+  } = await listMine(id, { page: 1, pageSize: 10 });
+  assert.equal(total, 1);
+  assert.equal(entry.id, id);
+  assert.equal(entry.enabled, false);
+  assert.equal(entry.notes, 'Kept from the old library');
+
+  assert.deepEqual(
+    await importToMine(id, { batchName: 'Another batch', urls: [link] }),
+    {
+      added: 0,
+      skipped: 1,
+      invalid: 0,
+    }
+  );
+  assert.equal((await listImportBatches(id, 1, 10)).total, 1);
+});
+
+test('adding selected batches uses enabled personal links and skips website duplicates', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  await importToMine(id, {
+    batchName: 'Local',
+    urls: [
+      'https://batch.example.test/enabled',
+      'https://batch.example.test/disabled',
+    ],
+  });
+  await importToMine(other, {
+    batchName: 'Foreign',
+    urls: ['https://batch.example.test/foreign'],
+  });
+  const {
+    list: [batch],
+  } = await listImportBatches(id, 1, 10);
+  const {
+    list: [foreign],
+  } = await listImportBatches(other, 1, 10);
+  const {
+    list: [disabled],
+  } = await listMine(id, {
+    batch: batch.id,
+    search: '/disabled',
+    page: 1,
+    pageSize: 10,
+  });
+  await db()
+    .update(userBacklink)
+    .set({ enabled: false })
+    .where(eq(userBacklink.id, disabled.libraryId));
+  const available = await listImportBatches(id, 1, 10, true);
+  assert.equal(available.list[0].count, 1);
+  assert.equal(available.unbatched, 1);
+  const payload = { batchIds: [batch.id, 'unbatched', foreign.id, batch.id] };
+  assert.deepEqual(await addToWebsite(id, id, payload), {
+    added: 2,
+    skipped: 0,
+  });
+  assert.deepEqual(await addToWebsite(id, id, payload), {
+    added: 0,
+    skipped: 2,
+  });
+  const records = await db()
+    .select()
+    .from(websiteBacklink)
+    .where(eq(websiteBacklink.websiteId, id));
+  assert.deepEqual(
+    new Set(records.map((record: { targetUrl: string }) => record.targetUrl)),
+    new Set([
+      `https://directory.example.test/${id}`,
+      'https://batch.example.test/enabled',
+    ])
+  );
+});
 
 test('known paid targets are excluded by default, opt-in is explicit', async () => {
   const id = await fixture('paid');

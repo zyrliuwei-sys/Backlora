@@ -1,11 +1,6 @@
 import { useState } from 'react';
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
-import { Plus, Search } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { BACKLINK_CATEGORIES, MAX_ADD_BATCH } from '@/config/backlinks';
@@ -26,15 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 
-import {
-  categoryLabel,
-  FilterSelect,
-  qs,
-  useFacets,
-  type Backlink,
-  type MyBacklink,
-  type Paged,
-} from './-shared';
+import { categoryLabel, Pager, qs, useFacets, type Paged } from './-shared';
 
 type SetSpec =
   | { kind: 'all' }
@@ -42,9 +29,7 @@ type SetSpec =
   | { kind: 'category'; value: string }
   | { kind: 'tag'; value: string };
 
-type Target =
-  | { kind: 'website'; websiteId: string; websiteName: string }
-  | { kind: 'library' };
+type Target = { websiteId: string; websiteName: string };
 
 type AddResult = { added: number; skipped?: number; invalid?: number };
 
@@ -97,20 +82,14 @@ function SetOption({
   );
 }
 
-/**
- * 推荐外链套餐: recommended, by category, by tag, or a custom tag. Drawn from
- * the plaza, or from the user's own library when adding to a website.
- */
 function SetsTab({
-  scope,
   selected,
   onSelect,
 }: {
-  scope: 'plaza' | 'personal';
   selected: SetSpec | null;
   onSelect: (s: SetSpec) => void;
 }) {
-  const facets = useFacets(scope);
+  const facets = useFacets('personal');
   const [customTag, setCustomTag] = useState('');
   const key = selected ? setKey(selected) : '';
   const f = facets.data;
@@ -138,24 +117,18 @@ function SetsTab({
         <div className="text-muted-foreground text-xs">
           {m['dash.add.recommended']()}
         </div>
-        {scope === 'personal' && (
-          <SetOption
-            checked={key === 'all'}
-            onSelect={() => onSelect({ kind: 'all' })}
-            label={m['dash.add.all_personal']()}
-            hint={m['dash.add.all_personal_hint']()}
-            count={f?.total}
-          />
-        )}
+        <SetOption
+          checked={key === 'all'}
+          onSelect={() => onSelect({ kind: 'all' })}
+          label={m['dash.add.all_personal']()}
+          hint={m['dash.add.all_personal_hint']()}
+          count={f?.total}
+        />
         <SetOption
           checked={key === 'recommended'}
           onSelect={() => onSelect({ kind: 'recommended' })}
           label={m['dash.add.recommended']()}
-          hint={
-            scope === 'personal'
-              ? m['dash.add.recommended_personal_hint']()
-              : m['dash.add.recommended_hint']()
-          }
+          hint={m['dash.add.recommended_personal_hint']()}
           count={f?.recommended}
         />
       </div>
@@ -206,149 +179,98 @@ function SetsTab({
   );
 }
 
-/** Searchable checklist over the plaza or the user's library. */
-function PickTab({
-  scope,
+function LibraryPicker({
   selected,
   onChange,
+  selectedCount,
 }: {
-  scope: 'plaza' | 'personal';
-  selected: Set<string>;
-  onChange: (s: Set<string>) => void;
+  selected: Map<string, number>;
+  onChange: (batches: Map<string, number>) => void;
+  selectedCount: number;
 }) {
-  const [input, setInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('all');
-  const [tag, setTag] = useState('all');
-  const facets = useFacets(scope);
-  const list = useQuery({
-    queryKey: ['add-pick', scope, search, category, tag],
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const batches = useQuery({
+    queryKey: ['my-backlinks', 'batch-picker', page],
     queryFn: () =>
-      scope === 'plaza'
-        ? apiGet<Paged<Backlink>>(
-            `/api/backlinks?${qs({ page: 1, pageSize: 100, search, category, tag })}`
-          )
-        : apiGet<Paged<MyBacklink>>(
-            `/api/my-backlinks?${qs({ page: 1, pageSize: 100, search, enabled: 'enabled' })}`
-          ),
-    placeholderData: keepPreviousData,
+      apiGet<
+        Paged<{ id: string; name: string; count: number }> & {
+          unbatched: number;
+        }
+      >(
+        `/api/my-backlinks/batches?${qs({ page, pageSize, enabled: 'enabled' })}`
+      ),
   });
-  const rows = (list.data?.list ?? []).filter(
-    (r) => scope === 'plaza' || category === 'all' || r.category === category
-  );
-  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const rows = batches.data?.list ?? [];
+  const unbatched = batches.data?.unbatched ?? 0;
+  const total = batches.data?.pagination.total ?? 0;
+  const groups =
+    unbatched > 0
+      ? [
+          ...rows,
+          { id: 'unbatched', name: m['dash.my.unbatched'](), count: unbatched },
+        ]
+      : rows;
+
+  if (batches.isError) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+        <p role="alert">{m['dash.add.load_error']()}</p>
+        <Button size="sm" variant="outline" onClick={() => batches.refetch()}>
+          {m['common.error.retry']()}
+        </Button>
+      </div>
+    );
+  }
+  if (batches.isPending) {
+    return (
+      <p className="text-muted-foreground py-4">{m['dash.add.loading']()}</p>
+    );
+  }
+  if (groups.length === 0) {
+    return (
+      <p className="text-muted-foreground py-4">{m['dash.my.no_batches']()}</p>
+    );
+  }
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <Input
-          className="min-w-[200px] flex-1"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && setSearch(input.trim())}
-          placeholder={m['dash.add.search_placeholder']()}
-        />
-        <FilterSelect
-          value={category}
-          onChange={setCategory}
-          allLabel={m['dash.common.all_categories']()}
-          options={BACKLINK_CATEGORIES.map((c) => ({
-            value: c,
-            label: categoryLabel[c](),
-          }))}
-        />
-        {scope === 'plaza' && (
-          <FilterSelect
-            value={tag}
-            onChange={setTag}
-            allLabel={m['dash.common.all_tags']()}
-            options={(facets.data?.tags ?? []).map((t) => ({
-              value: t.tag,
-              label: t.tag,
-            }))}
-          />
-        )}
-        <Button variant="outline" onClick={() => setSearch(input.trim())}>
-          <Search className="size-4" />
-          {m['dash.common.search']()}
-        </Button>
-      </div>
-      <div className="rounded-lg border">
-        <div className="bg-muted/40 flex items-center justify-between border-b px-3 py-2 text-sm">
-          <label className="flex items-center gap-2">
-            <Checkbox
-              checked={allChecked}
-              onCheckedChange={() => {
-                const next = new Set(selected);
-                for (const r of rows) {
-                  if (allChecked) next.delete(r.id);
-                  else if (next.size < MAX_ADD_BATCH) next.add(r.id);
-                }
-                onChange(next);
-              }}
-            />
-            {m['dash.add.select_results']()}
-          </label>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground text-xs"
-            onClick={() => onChange(new Set())}
-          >
-            {m['dash.add.clear_selection']()}
-          </button>
-        </div>
-        <div className="h-[340px] overflow-y-auto">
-          {list.isPending ? (
-            <p className="text-muted-foreground py-24 text-center text-sm">
-              {m['dash.add.loading']()}
-            </p>
-          ) : rows.length === 0 ? (
-            <p className="text-muted-foreground py-24 text-center text-sm">
-              {m['dash.common.empty']()}
-            </p>
-          ) : (
-            rows.map((r) => (
-              <label
-                key={r.id}
-                className="hover:bg-muted/40 flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-0"
-              >
-                <Checkbox
-                  checked={selected.has(r.id)}
-                  onCheckedChange={() => {
-                    const next = new Set(selected);
-                    if (next.has(r.id)) next.delete(r.id);
-                    else if (next.size < MAX_ADD_BATCH) next.add(r.id);
-                    onChange(next);
-                  }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{r.name}</div>
-                  <div className="text-muted-foreground truncate text-xs">
-                    {r.link}
-                  </div>
-                </div>
-                <Badge variant="outline" className="font-normal">
-                  {categoryLabel[r.category]?.() ?? r.category}
-                </Badge>
-                <span className="text-muted-foreground w-10 text-right text-xs tabular-nums">
-                  {r.dr ?? '–'}
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-      </div>
-      <p className="text-muted-foreground text-xs">
-        {m['dash.add.selected']({ count: selected.size, max: MAX_ADD_BATCH })}
-      </p>
+      <ul className="divide-y overflow-hidden rounded-lg border">
+        {groups.map(({ id, name, count }) => (
+          <li key={id}>
+            <label className="hover:bg-muted/40 flex items-center gap-3 px-3 py-3 has-[:disabled]:opacity-60">
+              <Checkbox
+                checked={selected.has(id)}
+                disabled={!count && !selected.has(id)}
+                onCheckedChange={(checked) => {
+                  const next = new Map(selected);
+                  if (checked) next.set(id, count);
+                  else next.delete(id);
+                  onChange(next);
+                }}
+              />
+              <span className="min-w-0 flex-1 font-medium break-words">
+                {name}
+              </span>
+              <span className="text-muted-foreground shrink-0 tabular-nums">
+                {m['dash.my.batch_url_count']({ count })}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {total > pageSize && (
+        <Pager page={page} pageSize={pageSize} total={total} onPage={setPage} />
+      )}
+      {selectedCount > MAX_ADD_BATCH && (
+        <p className="text-destructive text-xs" role="alert">
+          {m['dash.add.batch_limit']({ max: MAX_ADD_BATCH })}
+        </p>
+      )}
     </div>
   );
 }
 
-/**
- * 添加外链 / 批量导入外链 body. `target` decides where the entries go:
- * a website's submission records, or the user's library.
- */
 export function AddBacklinksPanel({
   target,
   onDone,
@@ -359,21 +281,23 @@ export function AddBacklinksPanel({
   onCancel?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState('sets');
+  const [tab, setTab] = useState('personal');
   const [set, setSet] = useState<SetSpec | null>(null);
-  const [plazaIds, setPlazaIds] = useState<Set<string>>(new Set());
-  const [personalIds, setPersonalIds] = useState<Set<string>>(new Set());
+  const [selectedBatches, setSelectedBatches] = useState<Map<string, number>>(
+    () => new Map()
+  );
   const [urls, setUrls] = useState('');
-  const isWebsite = target.kind === 'website';
-  // Websites draw sets from the user's own library; the library import
-  // draws them from the plaza.
-  const setScope = isWebsite ? 'personal' : 'plaza';
+  const selectedCount = [...selectedBatches.values()].reduce(
+    (total, count) => total + count,
+    0
+  );
 
   const body = (): object | null => {
-    if (tab === 'sets') return set ? { scope: setScope, set } : null;
-    if (tab === 'plaza') return plazaIds.size ? { ids: [...plazaIds] } : null;
+    if (tab === 'sets') return set ? { scope: 'personal', set } : null;
     if (tab === 'personal')
-      return personalIds.size ? { ids: [...personalIds] } : null;
+      return selectedCount > 0 && selectedCount <= MAX_ADD_BATCH
+        ? { batchIds: [...selectedBatches.keys()] }
+        : null;
     const list = urls
       .split(/\r?\n/)
       .map((u) => u.trim())
@@ -383,12 +307,7 @@ export function AddBacklinksPanel({
 
   const add = useMutation({
     mutationFn: (b: object) =>
-      apiPost<AddResult>(
-        isWebsite
-          ? `/api/websites/${target.websiteId}/backlinks`
-          : '/api/my-backlinks/batch-import',
-        b
-      ),
+      apiPost<AddResult>(`/api/websites/${target.websiteId}/backlinks`, b),
     onSuccess: (r) => {
       toast.success(
         m['dash.add.done']({
@@ -420,36 +339,22 @@ export function AddBacklinksPanel({
         className="flex-col"
       >
         <TabsList className="w-full">
+          <TabsTrigger value="personal">
+            {m['dash.nav.my_backlinks']()}
+          </TabsTrigger>
           <TabsTrigger value="sets">{m['dash.add.tab_sets']()}</TabsTrigger>
-          <TabsTrigger value="plaza">
-            {isWebsite ? m['dash.add.tab_plaza']() : m['dash.add.tab_all']()}
-          </TabsTrigger>
-          {isWebsite && (
-            <TabsTrigger value="personal">
-              {m['dash.add.tab_personal']()}
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="urls">
-            {isWebsite
-              ? m['dash.add.tab_urls']()
-              : m['dash.add.tab_import_urls']()}
-          </TabsTrigger>
+          <TabsTrigger value="urls">{m['dash.add.tab_urls']()}</TabsTrigger>
         </TabsList>
+        <TabsContent value="personal" className="pt-3">
+          <LibraryPicker
+            selected={selectedBatches}
+            onChange={setSelectedBatches}
+            selectedCount={selectedCount}
+          />
+        </TabsContent>
         <TabsContent value="sets" className="pt-3">
-          <SetsTab scope={setScope} selected={set} onSelect={setSet} />
+          <SetsTab selected={set} onSelect={setSet} />
         </TabsContent>
-        <TabsContent value="plaza" className="pt-3">
-          <PickTab scope="plaza" selected={plazaIds} onChange={setPlazaIds} />
-        </TabsContent>
-        {isWebsite && (
-          <TabsContent value="personal" className="pt-3">
-            <PickTab
-              scope="personal"
-              selected={personalIds}
-              onChange={setPersonalIds}
-            />
-          </TabsContent>
-        )}
         <TabsContent value="urls" className="space-y-2 pt-3">
           <Textarea
             rows={12}
@@ -473,9 +378,7 @@ export function AddBacklinksPanel({
           disabled={!ready || add.isPending}
           onClick={() => ready && add.mutate(ready)}
         >
-          {isWebsite
-            ? m['dash.add.submit_website']()
-            : m['dash.add.submit_library']()}
+          {m['dash.add.submit_website']()}
         </Button>
       </div>
     </div>
@@ -495,15 +398,9 @@ export function AddBacklinksDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>
-            {target.kind === 'website'
-              ? m['dash.add.title']()
-              : m['dash.add.import_title']()}
-          </DialogTitle>
+          <DialogTitle>{m['dash.add.title']()}</DialogTitle>
           <DialogDescription>
-            {target.kind === 'website'
-              ? m['dash.add.description']({ name: target.websiteName })
-              : m['dash.add.import_description']()}
+            {m['dash.add.description']({ name: target.websiteName })}
           </DialogDescription>
         </DialogHeader>
         {open && (

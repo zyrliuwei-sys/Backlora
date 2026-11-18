@@ -37,8 +37,11 @@ import { parseCsv } from '@/lib/csv';
 import { getUuid } from '@/lib/hash';
 
 import {
+  addToMine,
   ensureEntriesForUrls,
   getVisibleBacklink,
+  importToMine,
+  resolveImportBatches,
   resolveSet,
   type LibraryScope,
   type SetSpec,
@@ -160,12 +163,12 @@ export async function getRecord(userId: string, id: string) {
  * Create pending records for library entries; entries the website already
  * has a record for (same target URL) are skipped.
  */
-export async function addRecordsForBacklinks(
+async function addRecordsForBacklinks(
   userId: string,
-  websiteId: string,
+  w: Pick<typeof website.$inferSelect, 'id' | 'url'>,
   backlinkIds: string[]
 ): Promise<{ added: number; skipped: number }> {
-  const w = await requireWebsite(userId, websiteId);
+  const websiteId = w.id;
   const ids = [...new Set(backlinkIds)].slice(0, MAX_ADD_BATCH);
 
   const entries = (
@@ -248,18 +251,30 @@ export async function addToWebsite(
     scope?: LibraryScope;
     set?: SetSpec;
     ids?: string[];
+    batchIds?: string[];
     urls?: string[];
   }
 ) {
+  const w = await requireWebsite(userId, websiteId);
+  if (body.batchIds) {
+    const ids = await resolveImportBatches(userId, body.batchIds);
+    return addRecordsForBacklinks(userId, w, ids);
+  }
   if (body.set) {
     const ids = await resolveSet(userId, body.scope ?? 'plaza', body.set);
-    return addRecordsForBacklinks(userId, websiteId, ids);
+    return addRecordsForBacklinks(userId, w, ids);
   }
-  if (body.ids) return addRecordsForBacklinks(userId, websiteId, body.ids);
+  if (body.ids) return addRecordsForBacklinks(userId, w, body.ids);
   if (body.urls) {
-    const { ids, invalid } = await ensureEntriesForUrls(userId, body.urls);
+    const { ids, invalid, duplicates } = await ensureEntriesForUrls(
+      userId,
+      body.urls
+    );
+    await addToMine(userId, ids);
+    const result = await addRecordsForBacklinks(userId, w, ids);
     return {
-      ...(await addRecordsForBacklinks(userId, websiteId, ids)),
+      ...result,
+      skipped: result.skipped + duplicates,
       invalid,
     };
   }
@@ -576,6 +591,7 @@ export async function importRecords(
   let created = 0;
   let skipped = 0;
   let invalid = 0;
+  const targets = new Set<string>();
   for (const cells of table.slice(1, 5001)) {
     const get = (name: string) =>
       col(name) >= 0 ? cells[col(name)] : undefined;
@@ -589,7 +605,7 @@ export async function importRecords(
       continue;
     }
     try {
-      await createRecord(userId, {
+      const record = await createRecord(userId, {
         websiteId: site.id,
         sourceUrl: get('source_url') || site.url,
         targetUrl: get('target_url'),
@@ -598,13 +614,18 @@ export async function importRecords(
         description: get('description') ?? '',
         userNotes: get('user_notes') ?? '',
       });
+      targets.add(record.targetUrl);
       created++;
     } catch (e) {
-      if (e instanceof BacklinkError && e.message.includes('already'))
+      if (e instanceof BacklinkError && e.message.includes('already')) {
+        const target = normalizeUrl(str(get('target_url'), 2000));
+        if (target) targets.add(target);
         skipped++;
-      else invalid++;
+      } else invalid++;
     }
   }
+  for (const urls of chunk([...targets], MAX_ADD_BATCH))
+    await importToMine(userId, { urls });
   return { created, skipped, invalid };
 }
 
