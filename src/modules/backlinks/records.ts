@@ -37,10 +37,9 @@ import { parseCsv } from '@/lib/csv';
 import { getUuid } from '@/lib/hash';
 
 import {
-  addToMine,
-  ensureEntriesForUrls,
   getVisibleBacklink,
   importToMine,
+  importUrlsToMine,
   resolveImportBatches,
   resolveSet,
   type LibraryScope,
@@ -253,6 +252,7 @@ export async function addToWebsite(
     ids?: string[];
     batchIds?: string[];
     urls?: string[];
+    batchName?: unknown;
   }
 ) {
   const w = await requireWebsite(userId, websiteId);
@@ -266,16 +266,18 @@ export async function addToWebsite(
   }
   if (body.ids) return addRecordsForBacklinks(userId, w, body.ids);
   if (body.urls) {
-    const { ids, invalid, duplicates } = await ensureEntriesForUrls(
-      userId,
-      body.urls
-    );
-    await addToMine(userId, ids);
+    const {
+      ids,
+      invalid,
+      duplicates,
+      added: libraryAdded,
+    } = await importUrlsToMine(userId, body.urls, body.batchName);
     const result = await addRecordsForBacklinks(userId, w, ids);
     return {
       ...result,
       skipped: result.skipped + duplicates,
       invalid,
+      ...(body.batchName !== undefined && { libraryAdded }),
     };
   }
   throw new BacklinkError('Nothing to add');

@@ -26,6 +26,7 @@ import {
   domainOf,
   LINK_TYPES,
   MAX_ADD_BATCH,
+  MAX_BATCH_NAME_LENGTH,
   normalizeUrl,
   oneOf,
   QUALITIES,
@@ -765,7 +766,7 @@ export async function clearMine(userId: string) {
  * Turn URLs into library entries the user can use: an existing public entry
  * with the same submission URL is saved, anything else becomes a private one.
  */
-export async function ensureEntriesForUrls(
+async function ensureEntriesForUrls(
   userId: string,
   urls: string[]
 ): Promise<{ ids: string[]; invalid: number; duplicates: number }> {
@@ -887,28 +888,48 @@ async function saveNamedImport(userId: string, name: string, ids: string[]) {
   return { added };
 }
 
+/** Both personal and website URL import entry points save through this function. */
+export async function importUrlsToMine(
+  userId: string,
+  urls: string[],
+  batchName?: unknown
+) {
+  const name = typeof batchName === 'string' ? batchName.trim() : '';
+  if (batchName !== undefined && (!name || name.length > MAX_BATCH_NAME_LENGTH))
+    throw new BacklinkError('Invalid batch name');
+
+  const { ids, invalid, duplicates } = await ensureEntriesForUrls(userId, urls);
+  const { added } = name
+    ? await saveNamedImport(userId, name, ids)
+    : await addToMine(userId, ids);
+  const submitted = urls
+    .slice(0, MAX_ADD_BATCH)
+    .filter((url) => url.trim()).length;
+  return {
+    ids,
+    duplicates,
+    added,
+    invalid,
+    skipped: Math.max(0, submitted - invalid - added),
+  };
+}
+
 /** 批量导入: a set from the plaza, picked plaza ids, or pasted URLs. */
 export async function importToMine(
   userId: string,
-  body: { set?: SetSpec; ids?: string[]; urls?: string[]; batchName?: string }
+  body: { set?: SetSpec; ids?: string[]; urls?: string[]; batchName?: unknown }
 ) {
   if (body.set) {
     return addToMine(userId, await resolveSet(userId, 'plaza', body.set));
   }
   if (body.ids) return addToMine(userId, body.ids);
   if (body.urls) {
-    const { ids, invalid } = await ensureEntriesForUrls(userId, body.urls);
-    const { added } = body.batchName
-      ? await saveNamedImport(userId, body.batchName, ids)
-      : await addToMine(userId, ids);
-    const submitted = body.urls
-      .slice(0, MAX_ADD_BATCH)
-      .filter((url) => url.trim()).length;
-    return {
-      added,
-      invalid,
-      skipped: Math.max(0, submitted - invalid - added),
-    };
+    const { added, invalid, skipped } = await importUrlsToMine(
+      userId,
+      body.urls,
+      body.batchName
+    );
+    return { added, invalid, skipped };
   }
   throw new BacklinkError('Nothing to import');
 }

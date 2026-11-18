@@ -258,6 +258,61 @@ test('simultaneous named imports of the same URL add it to the library once', as
   assert.equal(list[0].count, 1);
 });
 
+test('website batch imports share library naming, URL deduplication, and retry behavior', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  const existing = 'https://shared-library.example.test/existing';
+  const unbatched = `https://directory.example.test/${id}`;
+  const fresh = 'https://shared-library.example.test/new';
+  await importToMine(id, { batchName: 'Previous', urls: [existing] });
+  await addToWebsite(id, id, { urls: [existing] });
+  const payload = {
+    batchName: '  Website batch  ',
+    urls: [existing, unbatched, fresh, `${fresh}#repeat`, 'invalid'],
+  };
+  await assert.rejects(addToWebsite(id, other, payload), /Website not found/);
+  await assert.rejects(
+    addToWebsite(id, id, { ...payload, batchName: ' ' }),
+    /Invalid batch name/
+  );
+  assert.equal((await listImportBatches(id, 1, 10)).total, 1);
+
+  const result = await addToWebsite(id, id, payload);
+  assert.deepEqual(result, {
+    added: 2,
+    skipped: 2,
+    invalid: 1,
+    libraryAdded: 2,
+  });
+  const batches = await listImportBatches(id, 1, 10);
+  assert.equal(batches.total, 2);
+  assert.equal(batches.unbatched, 0);
+  const batch = batches.list.find((item) => item.name === 'Website batch')!;
+  assert.equal(batch.count, 2);
+  assert.equal(batches.list.find((item) => item.name === 'Previous')?.count, 1);
+  assert.deepEqual(await addToWebsite(id, id, payload), {
+    added: 0,
+    skipped: 4,
+    invalid: 1,
+    libraryAdded: 0,
+  });
+  assert.equal((await listImportBatches(id, 1, 10)).total, 2);
+
+  // The same batch is now available as a library selection for other sites.
+  assert.deepEqual(
+    await addToWebsite(id, `${id}-other`, { batchIds: [batch.id] }),
+    { added: 2, skipped: 0 }
+  );
+  const records = await db()
+    .select({ targetUrl: websiteBacklink.targetUrl })
+    .from(websiteBacklink)
+    .where(eq(websiteBacklink.websiteId, id));
+  assert.deepEqual(
+    new Set(records.map((record: { targetUrl: string }) => record.targetUrl)),
+    new Set([existing, unbatched, fresh])
+  );
+});
+
 test('new imports deduplicate normalized URLs without dropping other paths or query parameters', async () => {
   const id = await fixture();
   const base = 'https://dedupe.example.test/submit';

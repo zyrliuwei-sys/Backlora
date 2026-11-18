@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { BACKLINK_CATEGORIES, MAX_ADD_BATCH } from '@/config/backlinks';
+import { Link } from '@/core/i18n/navigation';
+import { MAX_ADD_BATCH } from '@/config/backlinks';
 import { apiGet, apiPost } from '@/lib/api-client';
-import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -17,167 +15,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 
-import { categoryLabel, Pager, qs, useFacets, type Paged } from './-shared';
-
-type SetSpec =
-  | { kind: 'all' }
-  | { kind: 'recommended' }
-  | { kind: 'category'; value: string }
-  | { kind: 'tag'; value: string };
+import { BatchImportForm, type BatchImportInput } from './-batch-import-form';
+import { Pager, qs, type Paged } from './-shared';
 
 type Target = { websiteId: string; websiteName: string };
-
-type AddResult = { added: number; skipped?: number; invalid?: number };
-
-function setKey(s: SetSpec) {
-  return s.kind === 'all' || s.kind === 'recommended'
-    ? s.kind
-    : `${s.kind}:${s.value}`;
-}
-
-function SetOption({
-  checked,
-  onSelect,
-  label,
-  hint,
-  count,
-}: {
-  checked: boolean;
-  onSelect: () => void;
-  label: string;
-  hint?: string;
-  count?: number;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-        checked ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-      )}
-    >
-      <span
-        className={cn(
-          'size-3.5 shrink-0 rounded-full border',
-          checked && 'border-primary border-4'
-        )}
-      />
-      <Badge variant="outline" className="font-normal">
-        {label}
-      </Badge>
-      {hint && (
-        <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-          {hint}
-        </span>
-      )}
-      <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-        {count === undefined ? '…' : count}
-      </span>
-    </button>
-  );
-}
-
-function SetsTab({
-  selected,
-  onSelect,
-}: {
-  selected: SetSpec | null;
-  onSelect: (s: SetSpec) => void;
-}) {
-  const facets = useFacets('personal');
-  const [customTag, setCustomTag] = useState('');
-  const key = selected ? setKey(selected) : '';
-  const f = facets.data;
-  return (
-    <div className="space-y-4">
-      <p className="text-muted-foreground text-sm">
-        {m['dash.add.sets_hint']({ max: MAX_ADD_BATCH })}
-      </p>
-      <div className="flex gap-2">
-        <Input
-          value={customTag}
-          onChange={(e) => setCustomTag(e.target.value)}
-          placeholder={m['dash.add.custom_tag']()}
-        />
-        <Button
-          variant="outline"
-          disabled={!customTag.trim()}
-          onClick={() => onSelect({ kind: 'tag', value: customTag.trim() })}
-        >
-          <Plus className="size-4" />
-          {m['dash.add.add_backlinks']()}
-        </Button>
-      </div>
-      <div className="space-y-2">
-        <div className="text-muted-foreground text-xs">
-          {m['dash.add.recommended']()}
-        </div>
-        <SetOption
-          checked={key === 'all'}
-          onSelect={() => onSelect({ kind: 'all' })}
-          label={m['dash.add.all_personal']()}
-          hint={m['dash.add.all_personal_hint']()}
-          count={f?.total}
-        />
-        <SetOption
-          checked={key === 'recommended'}
-          onSelect={() => onSelect({ kind: 'recommended' })}
-          label={m['dash.add.recommended']()}
-          hint={m['dash.add.recommended_personal_hint']()}
-          count={f?.recommended}
-        />
-      </div>
-      <div className="space-y-2">
-        <div className="text-muted-foreground text-xs">
-          {m['dash.add.by_category']()}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {BACKLINK_CATEGORIES.map((c) => (
-            <SetOption
-              key={c}
-              checked={key === `category:${c}`}
-              onSelect={() => onSelect({ kind: 'category', value: c })}
-              label={categoryLabel[c]()}
-              count={f?.categories[c]}
-            />
-          ))}
-        </div>
-      </div>
-      <div className="space-y-2">
-        <div className="text-muted-foreground text-xs">
-          {m['dash.add.by_tag']()}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {(f?.tags ?? []).slice(0, 9).map((t) => (
-            <SetOption
-              key={t.tag}
-              checked={key === `tag:${t.tag}`}
-              onSelect={() => onSelect({ kind: 'tag', value: t.tag })}
-              label={t.tag}
-              count={t.count}
-            />
-          ))}
-        </div>
-        {selected?.kind === 'tag' &&
-          !(f?.tags ?? [])
-            .slice(0, 9)
-            .some((t) => t.tag === selected.value) && (
-            <p className="text-sm">
-              {m['dash.add.custom_tag_selected']({ tag: selected.value })}
-            </p>
-          )}
-        <p className="text-muted-foreground text-xs">
-          {m['dash.add.custom_tag_hint']()}
-        </p>
-      </div>
-    </div>
-  );
-}
+type AddResult = {
+  added: number;
+  skipped: number;
+  invalid?: number;
+  libraryAdded?: number;
+};
+type AddInput = { batchIds: string[] } | BatchImportInput;
 
 function LibraryPicker({
   selected,
@@ -229,7 +79,15 @@ function LibraryPicker({
   }
   if (groups.length === 0) {
     return (
-      <p className="text-muted-foreground py-4">{m['dash.my.no_batches']()}</p>
+      <div className="space-y-2 rounded-lg border px-4 py-5 text-sm">
+        <p className="text-muted-foreground">{m['dash.my.no_batches']()}</p>
+        <Link
+          href="/dashboard/my-backlinks"
+          className="text-primary font-medium hover:underline"
+        >
+          {m['dash.add.open_library']()}
+        </Link>
+      </div>
     );
   }
 
@@ -281,107 +139,97 @@ export function AddBacklinksPanel({
   onCancel?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState('personal');
-  const [set, setSet] = useState<SetSpec | null>(null);
   const [selectedBatches, setSelectedBatches] = useState<Map<string, number>>(
     () => new Map()
   );
-  const [urls, setUrls] = useState('');
   const selectedCount = [...selectedBatches.values()].reduce(
     (total, count) => total + count,
     0
   );
 
-  const body = (): object | null => {
-    if (tab === 'sets') return set ? { scope: 'personal', set } : null;
-    if (tab === 'personal')
-      return selectedCount > 0 && selectedCount <= MAX_ADD_BATCH
-        ? { batchIds: [...selectedBatches.keys()] }
-        : null;
-    const list = urls
-      .split(/\r?\n/)
-      .map((u) => u.trim())
-      .filter(Boolean);
-    return list.length ? { urls: list } : null;
-  };
+  const canAdd = selectedCount > 0 && selectedCount <= MAX_ADD_BATCH;
 
   const add = useMutation({
-    mutationFn: (b: object) =>
-      apiPost<AddResult>(`/api/websites/${target.websiteId}/backlinks`, b),
-    onSuccess: (r) => {
-      toast.success(
-        m['dash.add.done']({
+    mutationFn: (input: AddInput) =>
+      apiPost<AddResult>(`/api/websites/${target.websiteId}/backlinks`, input),
+    onSuccess: (r, input) => {
+      if ('urls' in input) {
+        const libraryAdded = r.libraryAdded ?? 0;
+        const message = m['dash.add.import_done']({
           added: r.added,
-          skipped: r.skipped ?? 0,
+          skipped: r.skipped,
           invalid: r.invalid ?? 0,
-        })
-      );
-      for (const k of [
-        'websites',
-        'website-records',
-        'my-backlinks',
-        'backlink-facets',
-        'dashboard-stats',
-        'favorites',
-      ])
-        queryClient.invalidateQueries({ queryKey: [k] });
+          libraryAdded,
+        });
+        if (r.added + libraryAdded === 0) {
+          toast.info(message);
+          return;
+        }
+        toast.success(message);
+      } else {
+        toast.success(m['dash.add.done'](r));
+      }
       onDone?.(r);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error: Error, input) => {
+      if ('batchIds' in input) toast.error(error.message);
+    },
+    onSettled: (_result, _error, input) => {
+      const keys = ['websites', 'website-records', 'dashboard-stats'];
+      if ('urls' in input)
+        keys.push('my-backlinks', 'backlink-facets', 'favorites');
+      for (const k of keys) queryClient.invalidateQueries({ queryKey: [k] });
+    },
   });
 
-  const ready = body();
   return (
-    <div className="min-w-0 space-y-4">
-      <Tabs
-        value={tab}
-        onValueChange={(v) => setTab(String(v))}
-        className="flex-col"
-      >
-        <TabsList className="w-full">
-          <TabsTrigger value="personal">
-            {m['dash.nav.my_backlinks']()}
-          </TabsTrigger>
-          <TabsTrigger value="sets">{m['dash.add.tab_sets']()}</TabsTrigger>
-          <TabsTrigger value="urls">{m['dash.add.tab_urls']()}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="personal" className="pt-3">
-          <LibraryPicker
-            selected={selectedBatches}
-            onChange={setSelectedBatches}
-            selectedCount={selectedCount}
-          />
-        </TabsContent>
-        <TabsContent value="sets" className="pt-3">
-          <SetsTab selected={set} onSelect={setSet} />
-        </TabsContent>
-        <TabsContent value="urls" className="space-y-2 pt-3">
-          <Textarea
-            rows={12}
-            value={urls}
-            onChange={(e) => setUrls(e.target.value)}
-            placeholder={m['dash.add.urls_placeholder']()}
-            className="field-sizing-fixed h-64 font-mono text-xs"
-          />
-          <p className="text-muted-foreground text-xs">
-            {m['dash.add.urls_hint']()}
-          </p>
-        </TabsContent>
-      </Tabs>
-      <div className="flex justify-end gap-2">
-        {onCancel && (
-          <Button variant="outline" onClick={onCancel}>
-            {m['dash.common.cancel']()}
+    <Tabs className="min-w-0" defaultValue="library">
+      <TabsList className="w-full">
+        <TabsTrigger value="library" disabled={add.isPending}>
+          {m['dash.nav.my_backlinks']()}
+        </TabsTrigger>
+        <TabsTrigger value="urls" disabled={add.isPending}>
+          {m['dash.add.tab_urls']()}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="library" className="space-y-4 pt-3">
+        <LibraryPicker
+          selected={selectedBatches}
+          onChange={setSelectedBatches}
+          selectedCount={selectedCount}
+        />
+        <div className="flex justify-end gap-2">
+          {onCancel && (
+            <Button
+              variant="outline"
+              disabled={add.isPending}
+              onClick={onCancel}
+            >
+              {m['dash.common.cancel']()}
+            </Button>
+          )}
+          <Button
+            disabled={!canAdd || add.isPending}
+            onClick={() =>
+              add.mutate({ batchIds: [...selectedBatches.keys()] })
+            }
+          >
+            {m['dash.add.submit_website']()}
           </Button>
-        )}
-        <Button
-          disabled={!ready || add.isPending}
-          onClick={() => ready && add.mutate(ready)}
-        >
-          {m['dash.add.submit_website']()}
-        </Button>
-      </div>
-    </div>
+        </div>
+      </TabsContent>
+      <TabsContent value="urls" className="pt-3" keepMounted>
+        <BatchImportForm
+          onCancel={onCancel}
+          submitLabel={m['dash.add.submit_website']()}
+          destinationHint={m['dash.add.urls_hint']()}
+          onImport={async (input) => {
+            const result = await add.mutateAsync(input);
+            return result.added + (result.libraryAdded ?? 0) > 0;
+          }}
+        />
+      </TabsContent>
+    </Tabs>
   );
 }
 

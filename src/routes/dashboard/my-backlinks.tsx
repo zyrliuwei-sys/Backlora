@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { CheckCircle2, Info, Link2, Upload } from 'lucide-react';
+import { CheckCircle2, Info, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiPost } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
-import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -14,10 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 
+import { BatchImportForm, type BatchImportInput } from './-batch-import-form';
 import { LibraryBatches } from './-library-batches';
 import { PageHeader } from './-shared';
 
@@ -31,28 +28,16 @@ type CompletedBatch = ImportResult & {
   name: string;
 };
 
-function importLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 function MyBacklinksPage() {
   const queryClient = useQueryClient();
-  const [batchName, setBatchName] = useState('');
-  const [urls, setUrls] = useState('');
   const [completed, setCompleted] = useState<CompletedBatch | null>(null);
-  const lines = importLines(urls);
 
   const importBatch = useMutation({
-    mutationFn: (payload: { batchName: string; urls: string[] }) =>
+    mutationFn: (payload: BatchImportInput) =>
       apiPost<ImportResult>('/api/my-backlinks/batch-import', payload),
     onSuccess: (result, { batchName: name }) => {
       setCompleted({ ...result, name });
       if (result.added > 0) {
-        setBatchName('');
-        setUrls('');
         toast.success(
           m['dash.my.batch_imported']({ count: result.added, name })
         );
@@ -64,10 +49,7 @@ function MyBacklinksPage() {
       queryClient.invalidateQueries({ queryKey: ['backlink-facets'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
-    onError: (error: Error) => toast.error(error.message),
   });
-
-  const canImport = batchName.trim().length > 0 && lines.length > 0;
 
   return (
     <>
@@ -93,71 +75,11 @@ function MyBacklinksPage() {
           </CardHeader>
 
           <CardContent className="px-6 py-6">
-            <form
-              className="space-y-6"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!canImport || importBatch.isPending) return;
-                importBatch.mutate({
-                  batchName: batchName.trim(),
-                  urls: lines,
-                });
-              }}
-            >
-              <div className="space-y-2">
-                <Label htmlFor="backlink-batch-name">
-                  {m['dash.my.batch_name']()}
-                </Label>
-                <Input
-                  id="backlink-batch-name"
-                  value={batchName}
-                  disabled={importBatch.isPending}
-                  maxLength={100}
-                  onChange={(event) => setBatchName(event.target.value)}
-                  placeholder={m['dash.my.batch_name_placeholder']()}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="backlink-batch-urls">
-                    {m['dash.my.batch_urls']()}
-                  </Label>
-                  <span className="text-muted-foreground text-xs">
-                    {m['dash.my.batch_url_count']({ count: lines.length })}
-                  </span>
-                </div>
-                <Textarea
-                  id="backlink-batch-urls"
-                  value={urls}
-                  disabled={importBatch.isPending}
-                  onChange={(event) => setUrls(event.target.value)}
-                  placeholder={m['dash.my.batch_urls_placeholder']()}
-                  className="min-h-72 resize-y font-mono text-sm"
-                  spellCheck={false}
-                />
-                <p className="text-muted-foreground text-sm">
-                  {m['dash.my.batch_urls_hint']()}
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-muted-foreground text-sm">
-                  {canImport
-                    ? m['dash.my.batch_ready']({ count: lines.length })
-                    : m['dash.my.batch_required']()}
-                </p>
-                <Button
-                  type="submit"
-                  disabled={!canImport || importBatch.isPending}
-                >
-                  <Upload className="size-4" />
-                  {importBatch.isPending
-                    ? m['dash.my.batch_importing']()
-                    : m['dash.my.batch_import']()}
-                </Button>
-              </div>
-            </form>
+            <BatchImportForm
+              onImport={async (input) =>
+                (await importBatch.mutateAsync(input)).added > 0
+              }
+            />
 
             {completed && (
               <div className="bg-primary/5 border-primary/20 mt-6 flex gap-3 rounded-xl border p-4">

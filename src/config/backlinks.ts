@@ -167,6 +167,7 @@ export const LEASE_MS = 15 * 60 * 1000;
 
 /** Most records one "add a set" action may create. */
 export const MAX_ADD_BATCH = 3000;
+export const MAX_BATCH_NAME_LENGTH = 100;
 
 export function oneOf<T extends string>(
   v: unknown,

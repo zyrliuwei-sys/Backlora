@@ -4,6 +4,13 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-18 — Share named imports between websites and My Library
+
+The website's Add Backlinks dialog and new-project wizard default to the
+personal batch picker. Their URL import tab uses the same named batch form and
+deduplication as My Library, then adds the valid URLs to the selected website.
+Already saved URLs are reused. No schema change is required.
+
 ## 2026-11-18 — Deduplicate imported backlink URLs
 
 Apply the unique backlink URL indexes before deploying. The migration adds
