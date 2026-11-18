@@ -96,7 +96,7 @@ function LibraryPicker({
       <ul className="divide-y overflow-hidden rounded-lg border">
         {groups.map(({ id, name, count }) => (
           <li key={id}>
-            <label className="hover:bg-muted/40 flex items-center gap-3 px-3 py-3 has-[:disabled]:opacity-60">
+            <label className="hover:bg-muted/40 has-[[data-checked]]:bg-primary/5 grid min-h-12 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60 sm:gap-4 sm:px-4">
               <Checkbox
                 checked={selected.has(id)}
                 disabled={!count && !selected.has(id)}
@@ -107,10 +107,8 @@ function LibraryPicker({
                   onChange(next);
                 }}
               />
-              <span className="min-w-0 flex-1 font-medium break-words">
-                {name}
-              </span>
-              <span className="text-muted-foreground shrink-0 tabular-nums">
+              <span className="font-medium wrap-anywhere">{name}</span>
+              <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums sm:text-sm">
                 {m['dash.my.batch_url_count']({ count })}
               </span>
             </label>
@@ -183,42 +181,61 @@ export function AddBacklinksPanel({
   });
 
   return (
-    <Tabs className="min-w-0" defaultValue="library">
-      <TabsList className="w-full">
-        <TabsTrigger value="library" disabled={add.isPending}>
+    <Tabs
+      className="grid min-w-0 grid-cols-1 gap-4 [&>[data-ending-style]]:hidden"
+      defaultValue="library"
+    >
+      <TabsList className="grid h-11 w-full min-w-0 grid-cols-2 items-stretch gap-1 group-data-horizontal/tabs:h-11">
+        <TabsTrigger
+          className="dark:data-active:bg-background h-full"
+          value="library"
+          disabled={add.isPending}
+        >
           {m['dash.nav.my_backlinks']()}
         </TabsTrigger>
-        <TabsTrigger value="urls" disabled={add.isPending}>
+        <TabsTrigger
+          className="dark:data-active:bg-background h-full"
+          value="urls"
+          disabled={add.isPending}
+        >
           {m['dash.add.tab_urls']()}
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="library" className="space-y-4 pt-3">
+      <TabsContent value="library" className="min-w-0 space-y-4">
         <LibraryPicker
           selected={selectedBatches}
           onChange={setSelectedBatches}
           selectedCount={selectedCount}
         />
-        <div className="flex justify-end gap-2">
-          {onCancel && (
-            <Button
-              variant="outline"
-              disabled={add.isPending}
-              onClick={onCancel}
-            >
-              {m['dash.common.cancel']()}
-            </Button>
-          )}
-          <Button
-            disabled={!canAdd || add.isPending}
-            onClick={() =>
-              add.mutate({ batchIds: [...selectedBatches.keys()] })
-            }
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <p
+            className="text-muted-foreground text-sm tabular-nums"
+            role="status"
           >
-            {m['dash.add.submit_website']()}
-          </Button>
+            {m['dash.add.selected']({ count: selectedCount })}
+          </p>
+          <div className="ms-auto flex gap-2">
+            {onCancel && (
+              <Button
+                variant="outline"
+                disabled={add.isPending}
+                onClick={onCancel}
+              >
+                {m['dash.common.cancel']()}
+              </Button>
+            )}
+            <Button
+              disabled={!canAdd || add.isPending}
+              onClick={() =>
+                add.mutate({ batchIds: [...selectedBatches.keys()] })
+              }
+            >
+              {m['dash.add.submit_website']()}
+            </Button>
+          </div>
         </div>
       </TabsContent>
-      <TabsContent value="urls" className="pt-3" keepMounted>
+      <TabsContent value="urls" className="min-w-0" keepMounted>
         <BatchImportForm
           onCancel={onCancel}
           submitLabel={m['dash.add.submit_website']()}
@@ -244,10 +261,12 @@ export function AddBacklinksDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{m['dash.add.title']()}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-h-[min(92dvh,48rem)] grid-cols-1 gap-5 overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))] sm:p-6">
+        <DialogHeader className="min-w-0 pe-8">
+          <DialogTitle className="font-semibold sm:text-lg">
+            {m['dash.add.title']()}
+          </DialogTitle>
+          <DialogDescription className="wrap-anywhere">
             {m['dash.add.description']({ name: target.websiteName })}
           </DialogDescription>
         </DialogHeader>

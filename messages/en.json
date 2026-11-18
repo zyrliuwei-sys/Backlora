@@ -1491,7 +1491,7 @@
   "dash.add.loading": "Loading backlinks…",
   "dash.add.load_error": "Could not load backlinks",
   "dash.add.batch_limit": "The selected batches exceed the {max}-link limit. Select fewer batches.",
-  "dash.add.selected": "Selected: {count} · max {max}",
+  "dash.add.selected": "{count} URLs selected",
   "dash.add.urls_placeholder": "One URL per line",
   "dash.add.urls_hint": "URLs are saved to your library and added to this website.",
   "dash.add.submit_website": "Add to website",

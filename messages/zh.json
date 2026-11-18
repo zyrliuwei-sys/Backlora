@@ -1491,7 +1491,7 @@
   "dash.add.loading": "正在加载外链…",
   "dash.add.load_error": "无法加载外链",
   "dash.add.batch_limit": "所选批次超过单次上限 {max} 条，请减少选择。",
-  "dash.add.selected": "已选择：{count} · 最多 {max} 条",
+  "dash.add.selected": "已选 {count} 条网址",
   "dash.add.urls_placeholder": "每行一个网址",
   "dash.add.urls_hint": "本次网址会保存到「我的外链库」，并添加到当前网站。",
   "dash.add.submit_website": "添加到网站",
