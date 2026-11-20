@@ -4,6 +4,12 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-20 — Remove the sign-up password control from website forms
+
+Authorized agent tasks can still use previously saved sign-up passwords. Use
+the website update API fields `registrationPassword` and
+`clearRegistrationPassword` to manage those credentials.
+
 ## 2026-11-18 — Share named imports between websites and My Library
 
 The website's Add Backlinks dialog and new-project wizard default to the

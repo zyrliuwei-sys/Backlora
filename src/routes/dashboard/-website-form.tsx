@@ -35,12 +35,8 @@ const emailCapabilityLabel = {
 
 export type WebsiteForm = Omit<
   Website,
-  'id' | 'counts' | 'createdAt' | 'updatedAt'
-> & {
-  // Write-only: a new value sets it, blank keeps the saved one.
-  registrationPassword?: string;
-  clearRegistrationPassword?: boolean;
-};
+  'id' | 'counts' | 'createdAt' | 'updatedAt' | 'hasRegistrationPassword'
+>;
 
 export function emptyWebsite(url = ''): WebsiteForm {
   return {
@@ -81,7 +77,14 @@ export function emptyWebsite(url = ''): WebsiteForm {
 }
 
 export function toWebsiteForm(w: Website): WebsiteForm {
-  const { id: _i, counts: _c, createdAt: _a, updatedAt: _u, ...rest } = w;
+  const {
+    id: _id,
+    counts: _counts,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    hasRegistrationPassword: _hasRegistrationPassword,
+    ...rest
+  } = w;
   return { ...emptyWebsite(), ...rest };
 }
 
@@ -668,47 +671,6 @@ export function WebsiteFields({
                   onChange={(e) => set('emailManagementUrl', e.target.value)}
                   placeholder={DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}
                 />
-              </F>
-              <F
-                label={m['dash.form.reg_password']()}
-                hint={m['dash.form.reg_password_hint']()}
-                wide
-              >
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    autoComplete="new-password"
-                    value={v.registrationPassword ?? ''}
-                    disabled={v.clearRegistrationPassword}
-                    onChange={(e) =>
-                      set('registrationPassword', e.target.value)
-                    }
-                    placeholder={
-                      v.clearRegistrationPassword
-                        ? m['dash.form.reg_password_cleared']()
-                        : v.hasRegistrationPassword
-                          ? m['dash.form.reg_password_saved']()
-                          : m['dash.form.reg_password_placeholder']()
-                    }
-                  />
-                  {v.hasRegistrationPassword && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        set(
-                          'clearRegistrationPassword',
-                          !v.clearRegistrationPassword
-                        );
-                        set('registrationPassword', '');
-                      }}
-                    >
-                      {v.clearRegistrationPassword
-                        ? m['dash.form.reg_password_undo']()
-                        : m['dash.form.reg_password_clear']()}
-                    </Button>
-                  )}
-                </div>
               </F>
               <label className="bg-muted/30 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5 sm:col-span-2">
                 <div>
