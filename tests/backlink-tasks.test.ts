@@ -54,7 +54,7 @@ const {
   userBacklink,
   websiteBacklink,
 } = await import('../src/config/db/schema');
-const { startTask, reportResult, heartbeat, getTask } =
+const { startTask, reportResult, heartbeat, getTask, bindTaskGoogleLogin } =
   await import('../src/modules/backlinks/tasks');
 const { addToWebsite, importRecords, retryRecords, createRecord } =
   await import('../src/modules/backlinks/records');
@@ -263,6 +263,66 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
     runtime.__CF_ENV__ = original;
     if (key === undefined) delete process.env.CONFIG_ENCRYPTION_KEY;
     else process.env.CONFIG_ENCRYPTION_KEY = key;
+  }
+});
+
+test('Google login is scoped to the configured PavoAI project and pins a task to the approved account', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  await db()
+    .update(website)
+    .set({ url: 'https://pavoai.net/' })
+    .where(eq(website.id, id));
+  await db()
+    .update(website)
+    .set({ url: 'https://pavoai.net/' })
+    .where(eq(website.id, other));
+  const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
+  const original = runtime.__CF_ENV__;
+  const email = 'work-google@example.test';
+  runtime.__CF_ENV__ = {
+    ...original,
+    BACKLORA_MAIL_WEBSITE_ID: id,
+    BACKLORA_PAVO_GOOGLE_EMAIL: email,
+    VERIFICATION_MAIL: {},
+  };
+  try {
+    const { task } = await claim(id);
+    assert.ok(task?.lease_id);
+    assert.equal(task.account_policy.google_login_email, email);
+    assert.equal(task.product.submission_email, PAVO_SUBMISSION_EMAIL);
+    assert.ok(task.account_policy.verification_path);
+    assert.equal(
+      (await claim(other)).task?.account_policy.google_login_email,
+      null
+    );
+    const auth = { worker_id: `${id}-worker`, lease_id: task.lease_id };
+    await assert.rejects(bindTaskGoogleLogin(other, task.id, auth), {
+      status: 404,
+    });
+    await assert.rejects(
+      bindTaskGoogleLogin(id, task.id, { ...auth, lease_id: 'bad' }),
+      { status: 409 }
+    );
+    assert.equal(
+      (await getTask(id, task.id)).product.submission_email,
+      PAVO_SUBMISSION_EMAIL
+    );
+    assert.equal(
+      (await bindTaskGoogleLogin(id, task.id, auth)).google_login_email,
+      email
+    );
+    const bound = await getTask(id, task.id);
+    assert.equal(bound.product.submission_email, email);
+    assert.equal(bound.account_policy.login_provider, 'google');
+    assert.equal(bound.account_policy.requires_account_review, false);
+    assert.equal(bound.account_policy.verification_path, null);
+    assert.equal(
+      (await bindTaskGoogleLogin(id, task.id, auth)).google_login_email,
+      email
+    );
+  } finally {
+    runtime.__CF_ENV__ = original;
   }
 });
 

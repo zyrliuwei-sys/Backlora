@@ -38,6 +38,10 @@ import {
   type Website,
   type WebsiteBacklink,
 } from '@/config/db/schema';
+import {
+  googleLoginEmailOf,
+  PAVO_SUBMISSION_EMAIL,
+} from '@/config/submission-account';
 import { getUuid } from '@/lib/hash';
 
 import {
@@ -69,9 +73,13 @@ async function taskView(userId: string, r: WebsiteBacklink) {
   // A legacy attempt with no stored identity cannot safely inherit a newly
   // configured login email. Require an account check before using that task.
   const submissionEmail = r.submissionEmail;
+  const googleEmail = product.google_login_email;
+  const usesGoogle =
+    !!googleEmail && submissionEmail?.toLowerCase() === googleEmail;
   const identityReviewRequired = submissionEmail
-    ? submissionEmail.toLowerCase() !==
-      product.registration_email?.toLowerCase()
+    ? !usesGoogle &&
+      submissionEmail.toLowerCase() !==
+        product.registration_email?.toLowerCase()
     : r.attemptCount > 1 ||
       (r.attemptCount > 0 && !!product.registration_email);
   return {
@@ -112,17 +120,29 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       email_capability: product.email_capability,
       submission_identity_review_required: identityReviewRequired,
       registration_password:
-        product.registration_email && !identityReviewRequired
+        product.registration_email && !identityReviewRequired && !usesGoogle
           ? await agentPassword(w.id)
           : null,
     },
     account_policy: {
       login_email: product.registration_email,
+      google_login_email: googleEmail,
+      google_login_path:
+        googleEmail && !identityReviewRequired
+          ? `/api/v1/backlink-tasks/${r.id}/google-login`
+          : null,
+      login_provider: usesGoogle
+        ? 'google'
+        : product.registration_email
+          ? 'email'
+          : null,
       verification_inbox_email: product.verification_inbox_email,
       mailbox_url: product.email_management_url,
       verification_method: product.verification_method,
       verification_path:
-        product.verification_method === 'backlora' && !identityReviewRequired
+        product.verification_method === 'backlora' &&
+        !identityReviewRequired &&
+        !usesGoogle
           ? `/api/v1/backlink-tasks/${r.id}/verification-email`
           : null,
       public_contact_email: product.contact_email,
@@ -613,6 +633,59 @@ async function conflict(userId: string, id: string): Promise<never> {
     `Lease or status conflict (task is ${r.operationStatus})`,
     409
   );
+}
+
+/** Bind the authorized Google identity before the agent starts Google sign-in. */
+export async function bindTaskGoogleLogin(
+  userId: string,
+  id: string,
+  body: {
+    worker_id?: unknown;
+    lease_id?: unknown;
+    confirmed_no_prior_account?: unknown;
+  }
+) {
+  const workerId = workerIdOf(body?.worker_id);
+  const leaseId = str(body?.lease_id, 100);
+  if (!leaseId) throw new BacklinkError('lease_id is required');
+  const record = await recordOf(userId, id);
+  const w = await requireWebsite(userId, record.websiteId);
+  const email = googleLoginEmailOf(w);
+  if (!email || !w.autoBacklinkEnabled || w.status !== 'enabled')
+    throw new BacklinkError('Google login unavailable for this website', 409);
+
+  // Allow a retry only after the agent confirms an earlier account-only
+  // blockage never reached account creation or submission.
+  const canBind =
+    record.submissionEmail === PAVO_SUBMISSION_EMAIL &&
+    !record.submittedAt &&
+    !record.resultUrl &&
+    (record.attemptCount === 1 ||
+      (record.failureReason === 'account' &&
+        body.confirmed_no_prior_account === true));
+  if (record.submissionEmail !== email && !canBind)
+    throw new BacklinkError(
+      'Review the prior submission account before using Google login',
+      409
+    );
+
+  const [row]: { id: string }[] = await db()
+    .update(websiteBacklink)
+    .set({ submissionEmail: email })
+    .where(
+      and(
+        eq(websiteBacklink.id, id),
+        eq(websiteBacklink.userId, userId),
+        eq(websiteBacklink.operationStatus, 'in_progress'),
+        eq(websiteBacklink.claimedBy, workerId),
+        eq(websiteBacklink.leaseId, leaseId),
+        eq(websiteBacklink.submissionEmail, record.submissionEmail!),
+        gt(websiteBacklink.leaseExpiresAt, new Date())
+      )
+    )
+    .returning({ id: websiteBacklink.id });
+  if (!row) return conflict(userId, id);
+  return { google_login_email: email };
 }
 
 /** Renew and authorize a badge write for this exact task and worker. */

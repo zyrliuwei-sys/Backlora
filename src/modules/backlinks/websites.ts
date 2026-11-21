@@ -30,6 +30,7 @@ import {
 } from '@/config/db/schema';
 import {
   directMailEnabled,
+  googleLoginEmailOf,
   PAVO_SUBMISSION_EMAIL,
 } from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
@@ -78,6 +79,7 @@ export type WebsiteView = Omit<
   | 'metadata'
   | 'registrationPassword'
 > & {
+  googleLoginEmail: string | null;
   hasRegistrationPassword: boolean;
   screenshotUrls: string[];
   categories: string[];
@@ -103,6 +105,7 @@ export function viewWebsite({
   return {
     ...w,
     registrationEmail: registrationEmailOf(w) ?? '',
+    googleLoginEmail: googleLoginEmailOf(w),
     registrationEmailCapability: registrationCapabilityOf(w),
     verificationInboxEmail: registrationEmailOf(w) ?? '',
     emailManagementUrl: '',
@@ -321,6 +324,7 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || null,
     registration_email: registrationEmail,
+    google_login_email: googleLoginEmailOf(w),
     verification_inbox_email: registrationEmail,
     verification_method: registrationEmail
       ? ('backlora' as const)

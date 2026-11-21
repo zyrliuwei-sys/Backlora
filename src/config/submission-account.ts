@@ -11,6 +11,7 @@ export interface VerificationMailbox {
 
 type MailBindings = {
   BACKLORA_MAIL_WEBSITE_ID?: string;
+  BACKLORA_PAVO_GOOGLE_EMAIL?: string;
   VERIFICATION_MAIL?: VerificationMailbox;
 };
 
@@ -31,4 +32,11 @@ export function directMailEnabled(
   } catch {
     return false;
   }
+}
+
+export function googleLoginEmailOf(site: { id: string; url: string }) {
+  const env = mailBindings();
+  if (!directMailEnabled(site, env)) return null;
+  const email = env.BACKLORA_PAVO_GOOGLE_EMAIL?.trim().toLowerCase();
+  return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }

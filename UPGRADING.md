@@ -669,3 +669,8 @@ enabled Backlora mailbox return `verification_method: unavailable` and a
 null login email. They can still run tasks without an account requirement.
 Previous submission identity snapshots remain available for review. Replace
 any old copied instructions before resuming an automation.
+
+Set `vars.BACKLORA_PAVO_GOOGLE_EMAIL` to optionally authorize one Google account
+for the PavoAI pilot. A live task must bind it through the Google login endpoint
+before selecting the account in the browser. The task keeps that identity in its
+existing submission email snapshot. No credentials or database migration needed.

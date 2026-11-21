@@ -103,12 +103,12 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.includes('product.contact_email'));
       assert.ok(instructions.includes('product.submission_email'));
       assert.ok(instructions.includes('verification_inbox_email'));
-      assert.ok(instructions.includes('只有 verification_method=backlora'));
+      assert.ok(instructions.includes('google_login_path'));
       assert.ok(
         instructions.includes('submission_identity_review_required=true')
       );
       assert.ok(instructions.startsWith(buildSubmissionIdentityInstructions()));
-      assert.ok(instructions.includes('verification_method=unavailable'));
+      assert.ok(instructions.includes('unavailable'));
       assert.ok(instructions.includes('无需登录和邮箱验证'));
       assert.doesNotMatch(
         instructions,
@@ -127,7 +127,7 @@ test('saved-job upgrade removes conflicting account rules and preserves credenti
   assert.ok(updated.includes('test-only-placeholder'));
   assert.ok(updated.includes('最多处理 7 个任务'));
   assert.ok(updated.includes('Gravatar'));
-  assert.ok(updated.includes('保持原会话并回传 needs_user'));
+  assert.ok(updated.includes('保留现有会话并记录 account'));
   assert.equal(upgradeSubmissionIdentityPrompt(updated), updated);
 });
 
@@ -146,7 +146,7 @@ test('failure recovery distinguishes official partner badges, eligibility, free 
     buildApiDoc(baseUrl).includes(buildSubmissionRecoveryInstructions())
   );
   for (const requirement of [
-    'Good AI Tools',
+    'confirmed_no_prior_account',
     'product.metadata.company_founded_year',
     '不能随机生成地址',
     'British Columbia',

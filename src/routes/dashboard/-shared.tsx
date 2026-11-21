@@ -75,6 +75,7 @@ export interface Website {
   email: string;
   emailCapability: EmailCapability;
   registrationEmail: string;
+  googleLoginEmail: string | null;
   registrationEmailCapability: EmailCapability;
   verificationInboxEmail: string;
   launchDate: string;

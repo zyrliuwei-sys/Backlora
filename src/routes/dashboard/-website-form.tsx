@@ -47,6 +47,7 @@ export function emptyWebsite(url = ''): WebsiteForm {
     email: '',
     emailCapability: 'unknown',
     registrationEmail: '',
+    googleLoginEmail: null,
     registrationEmailCapability: 'unknown',
     verificationInboxEmail: '',
     launchDate: '',
@@ -625,6 +626,14 @@ export function WebsiteFields({
                   }
                 />
               </F>
+              {v.googleLoginEmail && (
+                <F
+                  label={m['dash.form.google_login_email']()}
+                  hint={m['dash.form.google_login_email_hint']()}
+                >
+                  <Input type="email" value={v.googleLoginEmail} readOnly />
+                </F>
+              )}
               <F
                 label={m['dash.form.registration_email_capability']()}
                 hint={m['dash.form.registration_email_capability_hint']()}

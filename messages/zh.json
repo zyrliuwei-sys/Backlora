@@ -1561,6 +1561,8 @@
   "dash.form.registration_email": "注册 / 登录邮箱",
   "dash.form.registration_email_hint": "尚未配置可用于外链注册和登录的邮箱。",
   "dash.form.registration_email_direct_hint": "用于支持邮箱注册和登录的外链站点。公开联系方式仍使用产品邮箱。",
+  "dash.form.google_login_email": "外链 Google 登录账号",
+  "dash.form.google_login_email_hint": "只用于要求 Google 登录的目标站。请先在 Ego 登录这个账号，Agent 会核对邮箱后复用会话。",
   "dash.form.verification_inbox_email": "验证码收件邮箱",
   "dash.form.verification_inbox_email_hint": "尚未配置验证邮件接收方式。",
   "dash.form.verification_inbox_direct_hint": "Backlora 接收验证邮件，交给当前外链任务。",
