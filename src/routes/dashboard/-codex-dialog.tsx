@@ -181,6 +181,8 @@ export function CodexDialog({
     enabled: open && siteId !== AUTO,
   });
   const readiness = site.data?.submission_readiness;
+  const websiteId = siteId === AUTO ? null : siteId;
+  const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
 
   const baseUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const generated = useMemo(
@@ -188,7 +190,8 @@ export function CodexDialog({
       buildPrimaryPrompt({
         baseUrl,
         apiKey: apiKey || '<API_KEY>',
-        websiteId: siteId === AUTO ? null : siteId,
+        websiteId,
+        googleLoginEmail,
         dataSource,
         category,
         num,
@@ -199,7 +202,8 @@ export function CodexDialog({
     [
       baseUrl,
       apiKey,
-      siteId,
+      websiteId,
+      googleLoginEmail,
       dataSource,
       category,
       num,
@@ -208,10 +212,7 @@ export function CodexDialog({
       site.data,
     ]
   );
-  // Options rewrite the prompt unless the user has edited it by hand.
-  useEffect(() => {
-    if (!primaryEdited) setPrimary(generated);
-  }, [generated, primaryEdited]);
+  const primaryText = primaryEdited ? primary : generated;
 
   function saveCustom(v: string) {
     setCustom(v);
@@ -223,9 +224,16 @@ export function CodexDialog({
   }
 
   const blocked = !!readiness && readiness.blocking_fields.length > 0;
+  const waitingForSite = !!websiteId && (!site.data || site.isFetching);
 
   async function copy() {
-    const text = buildAgentInstructions({ baseUrl, primary, custom });
+    const text = buildAgentInstructions({
+      baseUrl,
+      primary: primaryText,
+      custom,
+      websiteId,
+      googleLoginEmail,
+    });
     try {
       await navigator.clipboard.writeText(text);
       toast.success(m['dash.codex.copied']());
@@ -364,7 +372,10 @@ export function CodexDialog({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={copy} disabled={!apiKey || blocked}>
+            <Button
+              onClick={copy}
+              disabled={!apiKey || blocked || waitingForSite}
+            >
               {m['dash.codex.copy']()}
             </Button>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -434,7 +445,7 @@ export function CodexDialog({
           </div>
           <Textarea
             id="codex-primary-prompt"
-            value={primary}
+            value={primaryText}
             onChange={(e) => {
               setPrimary(e.target.value);
               setPrimaryEdited(true);

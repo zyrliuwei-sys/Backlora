@@ -81,6 +81,33 @@ test('standalone API contract includes the same complete procedure without crede
   assert.ok(!doc.includes(options.apiKey));
 });
 
+test('a selected project includes its configured Google address in the copied identity section', () => {
+  const googleLoginEmail = 'work@example.test';
+  const account = { websiteId: options.websiteId, googleLoginEmail };
+  const primary = buildPrimaryPrompt({ ...options, ...account });
+  assert.ok(primary.includes(googleLoginEmail));
+  for (const text of [primary, '手动编辑的主命令']) {
+    const copied = buildAgentInstructions({
+      baseUrl,
+      primary: text,
+      custom: '',
+      ...account,
+    });
+    assert.ok(
+      copied.startsWith(
+        `【注册身份与公开联系邮箱】\n本网站授权的 Google 登录账号为 \`${googleLoginEmail}\``
+      )
+    );
+    assert.equal(copied.split(googleLoginEmail).length - 1, 1);
+  }
+  assert.ok(!buildApiDoc(baseUrl).includes(googleLoginEmail));
+  assert.ok(
+    !buildPrimaryPrompt({ ...options, ...account, websiteId: null }).includes(
+      googleLoginEmail
+    )
+  );
+});
+
 test('all runners and edited prompts retain separate login, inbox and public-contact rules', () => {
   for (const container of [
     'ego-browser',

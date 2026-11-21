@@ -112,17 +112,32 @@ export function upgradeSubmissionRecoveryPrompt(prompt: string) {
   );
 }
 
-export function buildPrimaryPrompt(o: {
-  baseUrl: string;
-  apiKey: string;
+type PromptWebsiteAccount = {
   websiteId: string | null;
-  dataSource: DataSource;
-  category: string;
-  num: number;
-  taskScope: TaskScope;
-  container: AutomationContainer;
-  backlinkManagementUrl?: string;
-}) {
+  googleLoginEmail?: string | null;
+};
+
+function googleLoginInstruction({
+  websiteId,
+  googleLoginEmail,
+}: PromptWebsiteAccount) {
+  if (!websiteId || !googleLoginEmail) return '';
+  return `本网站授权的 Google 登录账号为 \`${googleLoginEmail}\`。只在目标站需要 Google 登录且任务返回的 google_login_email 与它一致时复用 Ego 会话。`;
+}
+
+export function buildPrimaryPrompt(
+  o: {
+    baseUrl: string;
+    apiKey: string;
+    dataSource: DataSource;
+    category: string;
+    num: number;
+    taskScope: TaskScope;
+    container: AutomationContainer;
+    backlinkManagementUrl?: string;
+  } & PromptWebsiteAccount
+) {
+  const googleLogin = googleLoginInstruction(o);
   const params = [
     `- API 基础地址（BASE_URL）：\`${o.baseUrl}\``,
     `- API Key（apiKey）：\`${o.apiKey}\``,
@@ -133,6 +148,7 @@ export function buildPrimaryPrompt(o: {
     `- 最多处理任务数（num）：\`${o.num}\``,
     `- 任务范围（taskScope）：\`${o.taskScope}\``,
     '- 注册、登录及验证码接收方式：使用 start 返回的 account_policy。',
+    ...(googleLogin ? [`- ${googleLogin}`] : []),
     `- 外链配置地址（backlinkManagementUrl）：\`${o.backlinkManagementUrl || 'product.backlink_management_url'}\``,
   ];
 
@@ -197,14 +213,19 @@ export function buildAgentInstructions({
   baseUrl,
   primary,
   custom,
+  websiteId = null,
+  googleLoginEmail,
 }: {
   baseUrl: string;
   primary: string;
   custom: string;
+  websiteId?: string | null;
+  googleLoginEmail?: string | null;
 }) {
-  return upgradeSubmissionRecoveryPrompt(
+  const googleLogin = googleLoginInstruction({ websiteId, googleLoginEmail });
+  const instructions = upgradeSubmissionRecoveryPrompt(
     [
-      primary
+      (googleLogin ? primary.replace(`- ${googleLogin}\n`, '') : primary)
         .replace(buildBadgeCopyInstructions(baseUrl), '')
         .replace(buildSubmissionIdentityInstructions(), '')
         .trim(),
@@ -216,6 +237,12 @@ export function buildAgentInstructions({
       .filter(Boolean)
       .join('\n\n')
   );
+  return googleLogin
+    ? instructions.replace(
+        '【注册身份与公开联系邮箱】\n',
+        `【注册身份与公开联系邮箱】\n${googleLogin}`
+      )
+    : instructions;
 }
 
 export function buildApiDoc(baseUrl: string) {
