@@ -7,7 +7,10 @@ import {
   EMAIL_CAPABILITIES,
   PRICE_MODELS,
 } from '@/config/backlinks';
-import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
+import {
+  DEFAULT_SUBMISSION_ACCOUNT,
+  PAVO_SUBMISSION_EMAIL,
+} from '@/config/submission-account';
 import { apiUpload } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
@@ -593,7 +596,11 @@ export function WebsiteFields({
             <div className="grid gap-4 sm:grid-cols-2">
               <F
                 label={m['dash.form.registration_email']()}
-                hint={m['dash.form.registration_email_hint']()}
+                hint={
+                  v.registrationEmail === PAVO_SUBMISSION_EMAIL
+                    ? m['dash.form.registration_email_direct_hint']()
+                    : m['dash.form.registration_email_hint']()
+                }
               >
                 <Input
                   type="email"
@@ -606,7 +613,11 @@ export function WebsiteFields({
               </F>
               <F
                 label={m['dash.form.verification_inbox_email']()}
-                hint={m['dash.form.verification_inbox_email_hint']()}
+                hint={
+                  v.registrationEmail === PAVO_SUBMISSION_EMAIL
+                    ? m['dash.form.verification_inbox_direct_hint']()
+                    : m['dash.form.verification_inbox_email_hint']()
+                }
               >
                 <Input
                   type="email"
@@ -661,17 +672,19 @@ export function WebsiteFields({
                   placeholder="https://yoursite.com/admin"
                 />
               </F>
-              <F
-                label={m['dash.form.email_mgmt']()}
-                hint={m['dash.form.email_mgmt_hint']()}
-              >
-                <Input
-                  value={v.emailManagementUrl}
-                  readOnly
-                  onChange={(e) => set('emailManagementUrl', e.target.value)}
-                  placeholder={DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}
-                />
-              </F>
+              {v.registrationEmail !== PAVO_SUBMISSION_EMAIL && (
+                <F
+                  label={m['dash.form.email_mgmt']()}
+                  hint={m['dash.form.email_mgmt_hint']()}
+                >
+                  <Input
+                    value={v.emailManagementUrl}
+                    readOnly
+                    onChange={(e) => set('emailManagementUrl', e.target.value)}
+                    placeholder={DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}
+                  />
+                </F>
+              )}
               <label className="bg-muted/30 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5 sm:col-span-2">
                 <div>
                   <div className="text-sm font-medium">

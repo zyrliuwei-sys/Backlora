@@ -41,6 +41,8 @@
   // ]
   //
   // Other optional bindings — uncomment when needed:
-  // "kv_namespaces":  [{ "binding": "CACHE",  "id": "..." }],
+  // Optional PavoAI pilot: add BACKLORA_MAIL_WEBSITE_ID to vars and bind
+  // a dedicated KV namespace. See UPGRADING.md for the exact mail route.
+  // "kv_namespaces":  [{ "binding": "VERIFICATION_MAIL", "id": "..." }],
   // "r2_buckets":     [{ "binding": "BUCKET", "bucket_name": "..." }]
 }

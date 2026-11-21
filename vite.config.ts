@@ -94,6 +94,6 @@ export default defineConfig({
       srcDirectory: 'src',
     }),
     viteReact(),
-    nitro(),
+    nitro({ plugins: ['./src/server/backlinks/email-routing.ts'] }),
   ],
 });

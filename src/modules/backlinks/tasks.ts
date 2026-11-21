@@ -108,8 +108,6 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       // Keep a task tied to the mailbox captured when it was claimed. This
       // prevents changing a website profile from silently switching an old
       // task to a different account.
-      // Keep the compatibility login field on the shared Gmail even when a
-      // historical attempt used support@...; the snapshot stays as evidence.
       email: product.registration_email,
       submission_email: submissionEmail,
       registration_email: product.registration_email,
@@ -121,6 +119,11 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       login_email: product.registration_email,
       verification_inbox_email: product.verification_inbox_email,
       mailbox_url: product.email_management_url,
+      verification_method: product.verification_method,
+      verification_path:
+        product.verification_method === 'backlora' && !identityReviewRequired
+          ? `/api/v1/backlink-tasks/${r.id}/verification-email`
+          : null,
       public_contact_email: product.contact_email,
       allow_logout: false,
       requires_account_review: identityReviewRequired,

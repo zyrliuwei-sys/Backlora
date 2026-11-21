@@ -28,7 +28,11 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
-import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
+import {
+  DEFAULT_SUBMISSION_ACCOUNT,
+  directMailEnabled,
+  PAVO_SUBMISSION_EMAIL,
+} from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
@@ -99,10 +103,12 @@ export function viewWebsite({
 }: Website): WebsiteView {
   return {
     ...w,
-    registrationEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
-    registrationEmailCapability: DEFAULT_SUBMISSION_ACCOUNT.capability,
-    verificationInboxEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
-    emailManagementUrl: DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
+    registrationEmail: registrationEmailOf(w),
+    registrationEmailCapability: registrationCapabilityOf(w),
+    verificationInboxEmail: registrationEmailOf(w),
+    emailManagementUrl: directMailEnabled(w)
+      ? ''
+      : DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -242,15 +248,19 @@ export type Readiness = {
   invalid_fields: string[];
 };
 
-/** New submissions use the shared login, never a project's public email. */
-export function registrationEmailOf(
-  _w: Pick<Website, 'registrationEmail' | 'email' | 'ownerEmail'>
-) {
-  return DEFAULT_SUBMISSION_ACCOUNT.email;
+/** The pilot uses a dedicated address on the configured website. */
+export function registrationEmailOf(w: Pick<Website, 'id' | 'url'>): string {
+  return directMailEnabled(w)
+    ? PAVO_SUBMISSION_EMAIL
+    : DEFAULT_SUBMISSION_ACCOUNT.email;
 }
 
-export function registrationCapabilityOf(_w: WebsiteView): EmailCapability {
-  return DEFAULT_SUBMISSION_ACCOUNT.capability;
+export function registrationCapabilityOf(
+  w: Pick<Website, 'id' | 'url'>
+): EmailCapability {
+  return directMailEnabled(w)
+    ? 'receive_only'
+    : DEFAULT_SUBMISSION_ACCOUNT.capability;
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -316,7 +326,10 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || null,
     registration_email: registrationEmail,
-    verification_inbox_email: DEFAULT_SUBMISSION_ACCOUNT.email,
+    verification_inbox_email: w.verificationInboxEmail,
+    verification_method: directMailEnabled(w)
+      ? ('backlora' as const)
+      : ('mailbox' as const),
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,
@@ -357,7 +370,7 @@ export function productOf(w: WebsiteView) {
     contact_email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
-    email_management_url: DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
+    email_management_url: w.emailManagementUrl || null,
     submission_readiness: submissionReadiness(w),
   };
 }

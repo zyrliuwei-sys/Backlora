@@ -77,8 +77,10 @@ const {
   updateWebsite,
   createWebsite,
 } = await import('../src/modules/backlinks/websites');
-const { DEFAULT_SUBMISSION_ACCOUNT } =
+const { DEFAULT_SUBMISSION_ACCOUNT, PAVO_SUBMISSION_EMAIL } =
   await import('../src/config/submission-account');
+const { readVerificationMail, receiveVerificationMail, verificationOf } =
+  await import('../src/modules/backlinks/verification-mail');
 const { COMPANY_FOUNDED_YEAR_KEY } = await import('../src/config/backlinks');
 after(async () => {
   await disposeD1?.();
@@ -153,6 +155,154 @@ const claim = (id: string, extra = {}) =>
     task_scope: 'all_eligible',
     ...extra,
   });
+
+test('PavoAI verification mail is limited to the matching sender, owner and active lease', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  await db()
+    .update(website)
+    .set({
+      url: 'https://pavoai.net/',
+      email: 'support@pavoai.net',
+    })
+    .where(eq(website.id, id));
+  await db()
+    .update(website)
+    .set({ url: 'https://pavoai.net/' })
+    .where(eq(website.id, other));
+
+  const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
+  const original = runtime.__CF_ENV__;
+  const key = process.env.CONFIG_ENCRYPTION_KEY;
+  const stored = new Map<string, string>();
+  process.env.CONFIG_ENCRYPTION_KEY = 'isolated-mail-test-key';
+  runtime.__CF_ENV__ = {
+    ...original,
+    BACKLORA_MAIL_WEBSITE_ID: id,
+    VERIFICATION_MAIL: {
+      get: async (name: string) => stored.get(name) ?? null,
+      put: async (
+        name: string,
+        value: string,
+        options: { expirationTtl: number }
+      ) => {
+        assert.equal(options.expirationTtl, 600);
+        stored.set(name, value);
+      },
+    },
+  };
+  try {
+    const { task } = await claim(id);
+    assert.ok(task?.lease_id);
+    assert.equal(task.product.submission_email, PAVO_SUBMISSION_EMAIL);
+    assert.equal(task.product.contact_email, 'support@pavoai.net');
+    assert.equal(task.account_policy.verification_method, 'backlora');
+    assert.equal(task.account_policy.mailbox_url, null);
+    assert.equal(
+      task.account_policy.verification_path,
+      `/api/v1/backlink-tasks/${task.id}/verification-email`
+    );
+    assert.equal(
+      (await claim(other)).task?.product.registration_email,
+      DEFAULT_SUBMISSION_ACCOUNT.email
+    );
+    const request = {
+      worker_id: `${id}-worker`,
+      lease_id: task.lease_id,
+      requested_after: new Date(Date.now() - 1000).toISOString(),
+    };
+    const receive = (
+      host: string,
+      dmarc: string,
+      to = PAVO_SUBMISSION_EMAIL as string
+    ) => {
+      const raw = new Response(
+        `From: Verify <noreply@${host}>\r\nSubject: Your verification code\r\n\r\nYour verification code is 321789\r\n`
+      ).body!;
+      return receiveVerificationMail({
+        to,
+        raw,
+        rawSize: 150,
+        headers: new Headers({
+          'authentication-results': `mx.cloudflare.net; dmarc=${dmarc} header.from=${host}`,
+        }),
+      });
+    };
+    await receive('directory.example.test', 'fail');
+    await receive('directory.example.test.attacker.test', 'pass');
+    await receive('directory.example.test', 'pass', 'support@pavoai.net');
+    assert.deepEqual(await readVerificationMail(id, task.id, request), {
+      status: 'waiting',
+    });
+
+    await receive('mail.directory.example.test', 'pass');
+    assert.equal(stored.size, 1);
+    assert.match([...stored.values()][0], /^enc:v1:/);
+    const received = await readVerificationMail(id, task.id, request);
+    assert.equal(received.status, 'received');
+    if (received.status === 'received') assert.equal(received.code, '321789');
+    assert.deepEqual(
+      await readVerificationMail(id, task.id, {
+        ...request,
+        requested_after: new Date(Date.now() + 1000).toISOString(),
+      }),
+      { status: 'waiting' }
+    );
+    await assert.rejects(readVerificationMail(other, task.id, request), {
+      status: 409,
+    });
+    await assert.rejects(
+      readVerificationMail(id, task.id, { ...request, lease_id: 'wrong' }),
+      { status: 409 }
+    );
+    await db()
+      .update(websiteBacklink)
+      .set({ leaseExpiresAt: new Date(0) })
+      .where(eq(websiteBacklink.id, task.id));
+    await assert.rejects(readVerificationMail(id, task.id, request), {
+      status: 409,
+    });
+  } finally {
+    runtime.__CF_ENV__ = original;
+    if (key === undefined) delete process.env.CONFIG_ENCRYPTION_KEY;
+    else process.env.CONFIG_ENCRYPTION_KEY = key;
+  }
+});
+
+test('verification links must stay on the target domain and password-reset mail is ignored', () => {
+  assert.deepEqual(
+    verificationOf(
+      {
+        subject: 'Activate your account',
+        html: '<a href="https://directory.example.test/verify?k=token&amp;flow=signup">Verify</a>',
+      },
+      'directory.example.test'
+    ),
+    {
+      code: null,
+      link: 'https://directory.example.test/verify?k=token&flow=signup',
+    }
+  );
+  assert.equal(
+    verificationOf(
+      {
+        text: 'Verify: https://directory.example.test.attacker.test/verify?k=token',
+      },
+      'directory.example.test'
+    ),
+    null
+  );
+  assert.equal(
+    verificationOf(
+      {
+        subject: 'Reset your password',
+        text: 'Your verification code is 321789',
+      },
+      'directory.example.test'
+    ),
+    null
+  );
+});
 
 test('named library imports count unique new links and allow removing them without unlinking websites', async () => {
   const id = await fixture();

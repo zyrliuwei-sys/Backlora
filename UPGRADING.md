@@ -641,3 +641,25 @@ grant_<orderNo>`, so the unique index allows one grant per order. Older
   `utm_source` filter (`users_sources` operation, `GET /api/admin/users/sources`,
   `users.read`). The subscriptions and credits list APIs now also return
   `userName` / `userImage`.
+
+## PavoAI verification mailbox pilot
+
+To opt in on Cloudflare, bind a dedicated Workers KV namespace as
+`VERIFICATION_MAIL` and set `vars.BACKLORA_MAIL_WEBSITE_ID` to the existing
+PavoAI website ID. Keep the Worker secret `CONFIG_ENCRYPTION_KEY` configured.
+The pilot requires both that ID and the `pavoai.net` website URL. No D1
+migration is required.
+
+In Email Routing for `pavoai.net`, add the exact recipient
+`submit@pavoai.net` with the **Send to a Worker** action pointing at Backlora.
+Review existing rules before adding the exact match. Use a freshly claimed
+PavoAI task and regenerate its saved automation instructions. Older tasks
+keep their original login identity for review.
+
+Backlora keeps only the extracted code or link in an encrypted KV value with
+a 10-minute expiry. It accepts DMARC-authenticated mail from the target domain
+or its subdomains, and ignores messages that match multiple active tasks.
+Some sites use unrelated sender or verification link domains and require manual
+handling. Workers KV can take about a minute or longer to show a new message.
+To roll back, disable the exact Email Routing rule and remove the pilot vars
+and binding from the next deployment.
