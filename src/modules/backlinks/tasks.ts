@@ -68,14 +68,12 @@ async function taskView(userId: string, r: WebsiteBacklink) {
   const product = productOf(w);
   // A legacy attempt with no stored identity cannot safely inherit a newly
   // configured login email. Require an account check before using that task.
-  const unknownIdentity = r.attemptCount > 0 && !r.submissionEmail;
-  const submissionEmail = unknownIdentity
-    ? null
-    : r.submissionEmail || product.registration_email;
-  const sameRegistrationEmail =
-    submissionEmail?.toLowerCase() ===
-    product.registration_email?.toLowerCase();
-  const identityReviewRequired = unknownIdentity || !sameRegistrationEmail;
+  const submissionEmail = r.submissionEmail;
+  const identityReviewRequired = submissionEmail
+    ? submissionEmail.toLowerCase() !==
+      product.registration_email?.toLowerCase()
+    : r.attemptCount > 1 ||
+      (r.attemptCount > 0 && !!product.registration_email);
   return {
     id: r.id,
     website_id: r.websiteId,
@@ -113,7 +111,10 @@ async function taskView(userId: string, r: WebsiteBacklink) {
       registration_email: product.registration_email,
       email_capability: product.email_capability,
       submission_identity_review_required: identityReviewRequired,
-      registration_password: await agentPassword(w.id),
+      registration_password:
+        product.registration_email && !identityReviewRequired
+          ? await agentPassword(w.id)
+          : null,
     },
     account_policy: {
       login_email: product.registration_email,

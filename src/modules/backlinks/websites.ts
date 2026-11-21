@@ -29,7 +29,6 @@ import {
   type Website,
 } from '@/config/db/schema';
 import {
-  DEFAULT_SUBMISSION_ACCOUNT,
   directMailEnabled,
   PAVO_SUBMISSION_EMAIL,
 } from '@/config/submission-account';
@@ -103,12 +102,10 @@ export function viewWebsite({
 }: Website): WebsiteView {
   return {
     ...w,
-    registrationEmail: registrationEmailOf(w),
+    registrationEmail: registrationEmailOf(w) ?? '',
     registrationEmailCapability: registrationCapabilityOf(w),
-    verificationInboxEmail: registrationEmailOf(w),
-    emailManagementUrl: directMailEnabled(w)
-      ? ''
-      : DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl,
+    verificationInboxEmail: registrationEmailOf(w) ?? '',
+    emailManagementUrl: '',
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -249,18 +246,16 @@ export type Readiness = {
 };
 
 /** The pilot uses a dedicated address on the configured website. */
-export function registrationEmailOf(w: Pick<Website, 'id' | 'url'>): string {
-  return directMailEnabled(w)
-    ? PAVO_SUBMISSION_EMAIL
-    : DEFAULT_SUBMISSION_ACCOUNT.email;
+export function registrationEmailOf(
+  w: Pick<Website, 'id' | 'url'>
+): string | null {
+  return directMailEnabled(w) ? PAVO_SUBMISSION_EMAIL : null;
 }
 
 export function registrationCapabilityOf(
   w: Pick<Website, 'id' | 'url'>
 ): EmailCapability {
-  return directMailEnabled(w)
-    ? 'receive_only'
-    : DEFAULT_SUBMISSION_ACCOUNT.capability;
+  return directMailEnabled(w) ? 'receive_only' : 'unknown';
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -326,10 +321,10 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || null,
     registration_email: registrationEmail,
-    verification_inbox_email: w.verificationInboxEmail,
-    verification_method: directMailEnabled(w)
+    verification_inbox_email: registrationEmail,
+    verification_method: registrationEmail
       ? ('backlora' as const)
-      : ('mailbox' as const),
+      : ('unavailable' as const),
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DEFAULT_SUBMISSION_ACCOUNT } from '../src/config/submission-account';
 import {
   buildAgentInstructions,
   buildApiDoc,
@@ -104,13 +103,17 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.includes('product.contact_email'));
       assert.ok(instructions.includes('product.submission_email'));
       assert.ok(instructions.includes('verification_inbox_email'));
-      assert.ok(instructions.includes('Google 登录不要求代注册密码'));
+      assert.ok(instructions.includes('只有 verification_method=backlora'));
       assert.ok(
         instructions.includes('submission_identity_review_required=true')
       );
       assert.ok(instructions.startsWith(buildSubmissionIdentityInstructions()));
-      assert.ok(instructions.includes(DEFAULT_SUBMISSION_ACCOUNT.email));
-      assert.ok(instructions.includes('禁止因为这个差异注销'));
+      assert.ok(instructions.includes('verification_method=unavailable'));
+      assert.ok(instructions.includes('无需登录和邮箱验证'));
+      assert.doesNotMatch(
+        instructions,
+        /wldesign1983|mail\.google\.com|共享 Gmail/i
+      );
     }
   }
 });

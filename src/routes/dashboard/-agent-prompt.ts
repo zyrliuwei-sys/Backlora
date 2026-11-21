@@ -3,7 +3,6 @@ import type {
   DataSource,
   TaskScope,
 } from '@/config/backlinks';
-import { DEFAULT_SUBMISSION_ACCOUNT } from '@/config/submission-account';
 
 /**
  * The text an agent (Codex / Claude Code) gets: the run prompt built from
@@ -69,11 +68,11 @@ const embed = await page.evaluate(captureBadgeEmbed, { buttonText: 'Copy Dark Em
 /** Included in the API contract too, so edited prompts retain the identity rules. */
 export function buildSubmissionIdentityInstructions() {
   return `【注册身份与公开联系邮箱】
-以当前任务的 account_policy 为准。若 verification_method=backlora，使用 account_policy.login_email 注册或登录，用 verification_path 取邮件。只支持 Google 等第三方登录、或要求从注册邮箱发信时，分别记录 needs_user/account 或 needs_user/email_send。公开联系邮箱始终使用 product.contact_email。
-1. verification_method=mailbox 或旧版 API 未返回此字段时，使用共享 Gmail ${DEFAULT_SUBMISSION_ACCOUNT.email}。已登录该账号时直接复用。它与产品的 support@... 公开邮箱不同是正常情况，禁止因为这个差异注销、退出登录或用企业邮箱重新注册。
-2. 先查看实际账号邮箱。确实登录了其他未获授权的账号时，保持原会话并回传 needs_user（reason=account），不得自行注销或换浏览器配置。Google 登录不要求代注册密码；只有外站确实要求邮箱密码注册、登录或补设密码时才使用 product.registration_password，它不是 Gmail 密码。不得读取 Cookie 或 Google 密码。
-3. Backlora 收件模式下，在目标站请求验证码或验证链接前记录当前 ISO 时间 requested_after。请求发出后用当前 worker_id、lease_id 和 requested_after 向本任务的 verification_path 发 POST，每约 15 秒查一次，最多等约 3 分钟。只在 status=received 时使用 code 或目标站验证链接 link。若 requires_account_review=true 或 verification_path 为空，先核对旧账号和提交记录。共享 Gmail 模式使用 ${DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl}，在 Gmail 搜索 in:anywhere to:${DEFAULT_SUBMISSION_ACCOUNT.email} newer_than:1d（包括垃圾邮件），按目标站和本次请求时间核对。找不到匹配邮件回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
-4. 公开产品联系方式使用 product.contact_email；旧版 API 缺此字段时可使用 product.email 作为公开邮箱的来源。product.submission_email 是历史任务快照；submission_identity_review_required=true 时只读核对旧账号、草稿、listing 和收件证据。不能确认历史结果时回传 needs_user（reason=account）。已发布资料保留原链接和证据，不为切换邮箱重复创建。Gravatar 等共用个人资料页不得覆盖已有姓名、头像、其他产品链接或无关资料。
+以当前任务的 account_policy 为准。只有 verification_method=backlora 且 login_email 和 verification_path 都存在时，才用该邮箱进行目标站注册、登录和验证。公开联系邮箱使用 product.contact_email。
+1. verification_method=unavailable 或缺少可用的账号配置时，继续处理无需登录和邮箱验证的入口。目标站确实要求账号时回传 needs_user（reason=account），写明项目尚未配置可用的注册邮箱。不要使用历史邮箱、公开联系邮箱或浏览器中的其他账号作为备用。
+2. 先查看实际账号邮箱。确实登录了其他未获授权的账号时，保持原会话并回传 needs_user（reason=account），不得自行注销或换浏览器配置。只有目标站确实要求邮箱密码注册、登录或补设密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
+3. 在目标站请求验证码或验证链接前记录当前 ISO 时间 requested_after。请求发出后用当前 worker_id、lease_id 和 requested_after 向本任务的 verification_path 发 POST，每约 15 秒查一次，最多等约 3 分钟。只在 status=received 时使用 code 或目标站验证链接 link。若 requires_account_review=true，先核对旧账号和提交记录。找不到匹配邮件回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
+4. product.contact_email 只用于公开联系方式；product.submission_email 是历史任务快照。submission_identity_review_required=true 时只读核对旧账号、草稿、listing 和收件证据。不能确认历史结果时回传 needs_user（reason=account）。已发布资料保留原链接和证据，不为切换邮箱重复创建。Gravatar 等共用个人资料页不得覆盖已有姓名、头像、其他产品链接或无关资料。
 5. product.email_capability 对应本任务注册邮箱，contact_email_capability 对应公开联系邮箱。只有目标站要求从特定地址发信或回复而确实无法完成时才记录 email_send。目标站和自有网站管理员后台需要分别核对登录会话。
 6. 目标站把登录邮箱强制公开、无法另填联系邮箱时，记录这个限制并回传 needs_user（reason=account）；不要擅自把私人登录邮箱填作公开的产品联系邮箱。`;
 }
@@ -95,7 +94,7 @@ export function buildSubmissionRecoveryInstructions() {
   return `【提交预检与失败恢复】
 本节补充目标站预检与失败分类；恢复旧任务时保留已有证据，不把所有未公开的结果都当成失败。
 1. submitted（已收件或待审核）、live（已公开）和 duplicate 都保留，不重新发送；待审核不记作失败。先检查现有 listing、草稿和收件记录，再决定是否需要任何外部写入。
-2. 只支持 Google 登录（如 Good AI Tools）时，Backlora 收件模式记录 needs_user/account。共享 Gmail 模式核对浏览器账号是否为 ${DEFAULT_SUBMISSION_ACCOUNT.email}。旧 reason=account 且记录明确表示未登录、未创建外站账号、未提交时，先只读查重。有旧账号、已有收件或结果无法确认时保留证据，不换号重发、不注销 Gmail。
+2. 只支持 Google 等第三方登录（如 Good AI Tools）时，记录 needs_user/account。旧 reason=account 的任务先只读核对已有账号、草稿、listing 和收件记录。有旧账号、已有收件或结果无法确认时保留证据，不换号重发。
 3. 填表前核对目标站当前收录条件与必填资料。公司成立年份取 product.company.founded_year 或 product.metadata.company_founded_year，总部地址取 product.company.headquarters 或 product.location；不能拿产品 launch_date 代替公司成立年份，不能随机生成地址、备案或公司资质。GeekWire 的 https://www.geekwire.com/submit-startup/ 还要求总部位于其指定的 Washington、Oregon、Idaho 或 British Columbia 地区等资格，以现行官方页面为准。缺事实记录 needs_user/missing_info 并列出准确字段；已知不符收录条件记录 skipped/forbidden，不为通过校验编造资料。
 4. 免费提交要求互链时先核实官方提交页和精确 HTML。官方明确要求的合作方链接，即使域名与目录或产品不同，也不能仅凭跨域判定为“无关链接”。例如 DokeyAI 的 https://dokeyai.com/submit 免费步骤明确给出合作方代码；须记录实际来源 URL、官方说明和原始 HTML，再按已获授权的徽章安装/公开验证流程继续。广告、评论、弹窗或无法确认来源的链接不属于这项授权；用户明确禁止的互链仍遵守。安装或校验遇到真实阻碍记 reciprocal，不能直接改记 paid 或要求购买套餐。
 5. 目标站提供免费方案但免费排期无空位（如 LaunchitX）时，检查官方可选的后续免费日期或免费候补入口；仍无位置则记录 needs_user/queue_full，附检查范围与时间。免费队列满不是“只有付费”，不得因此把外链库改成 paid。只在确实没有免费提交路径时才使用 paid，不购买套餐、不反复点提交。
@@ -123,7 +122,6 @@ export function buildPrimaryPrompt(o: {
   taskScope: TaskScope;
   container: AutomationContainer;
   backlinkManagementUrl?: string;
-  emailManagementUrl?: string;
 }) {
   const params = [
     `- API 基础地址（BASE_URL）：\`${o.baseUrl}\``,
@@ -136,7 +134,6 @@ export function buildPrimaryPrompt(o: {
     `- 任务范围（taskScope）：\`${o.taskScope}\``,
     '- 注册、登录及验证码接收方式：使用 start 返回的 account_policy。',
     `- 外链配置地址（backlinkManagementUrl）：\`${o.backlinkManagementUrl || 'product.backlink_management_url'}\``,
-    '- 邮件管理地址（emailManagementUrl）：使用 account_policy.mailbox_url（Backlora 直接收件时为空）。',
   ];
 
   const browser = CONTAINERS[o.container]
@@ -167,7 +164,7 @@ ${buildBadgeCopyInstructions(o.baseUrl)}
 1. 先通读末尾的接口文档。以 start 返回的 product 作为唯一资料来源，可以据此撰写、翻译或改写文案，但不得编造事实。
 2. 每次触发生成一个新的 worker_id（格式 codex-<uuid>），本批所有请求共用。调用 start 时传 data_source=\`{dataSource}\`、task_scope=\`{taskScope}\`、include_paid=false${o.websiteId ? '、website_id=`{websiteId}`' : ''}。
 
-3. 每个产品在本批开始时只做一次能力预检：先调用 GET /api/websites/{product.id}/badge-connection；ready=true 时使用下文的专用安装接口。尚未连接时才打开其互链配置地址，核对权限。仅在共享 Gmail 模式打开邮件管理地址核对会话。跳到 sign-in/settings、401、403 都属于后台访问不可用。缓存该结果，直接提交机会可继续。
+3. 每个产品在本批开始时只做一次互链能力预检：调用 GET /api/websites/{product.id}/badge-connection；ready=true 时使用下文的专用安装接口。尚未连接时才打开其互链配置地址，核对权限。跳到 sign-in/settings、401、403 都属于后台访问不可用。缓存该结果，直接提交机会可继续。
 4. 目标站登录前按本任务 account_policy 核对账号；公开联系方式使用项目企业邮箱。旧 submission_email 不同则核实历史结果。
 
 【逐个任务】
@@ -255,10 +252,10 @@ GET /api/websites/{website_id}
 | \`owner\` | 提交人：\`first_name\`、\`last_name\`、\`email\`、\`twitter\`、\`avatar_url\` |
 | \`contact_email\` | 对外公开的产品联系邮箱，例如 support@...；填产品联系方式时使用 |
 | \`registration_email\`、\`email\` | 本项目注册/登录邮箱，email 是兼容字段 |
-| \`verification_method\` | backlora 为任务接口直接收件，mailbox 为邮箱网页收件 |
+| \`verification_method\` | backlora 为任务接口直接收件，unavailable 为尚无可用的注册和收件配置 |
 | \`verification_inbox_email\` | 实际读取验证码的邮箱账号，可与注册邮箱不同（转发收信） |
 | \`submission_email\` | 本任务领取时锁定的注册/登录邮箱，避免网站资料修改后混用账号 |
-| \`submission_identity_review_required\` | true 表示旧尝试身份未知或与当前 Gmail 不同；只读核实历史结果，不注销当前 Gmail、不重复注册 |
+| \`submission_identity_review_required\` | true 表示历史身份未知或与当前注册邮箱不同；只读核实历史结果 |
 | \`email_capability\`、\`contact_email_capability\` | 本任务注册邮箱/公开联系邮箱的能力：\`unknown\`、\`receive_only\` 或 \`send_capable\` |
 | \`short_description\`、\`long_description\`、\`tagline\`、\`slogan\` | 产品文案 |
 | \`assets\` | \`icon_url\`、\`screenshot_urls\`、\`demo_video_url\`、\`explainer_video_url\` |
@@ -266,7 +263,7 @@ GET /api/websites/{website_id}
 | \`company\` | \`founded_year\` 为真实公司成立年份（未知为 null）；\`headquarters\` 为已填写的总部地址。成立年份与产品上线日期不同 |
 | \`social_links\`、\`location\`、\`metadata\`、\`links\` | 社交链接、地址、补充键值、评论锚文本 \`[{ name, url }]\` |
 | \`auto_backlink_enabled\`、\`agent_submission_note\` | 是否允许自动外链、通用提交备注 |
-| \`backlink_management_url\`、\`email_management_url\` | 互链配置地址、邮箱后台地址 |
+| \`backlink_management_url\` | 互链配置地址 |
 | \`registration_password\` | 代注册密码，目标站注册或补设密码时使用；未设置时为 null。只在任务接口（start、查询任务）的 product 里返回，不得写入结果、证据或日志 |
 
 \`submission_readiness\`：
@@ -303,7 +300,7 @@ POST /api/v1/backlink-tasks/start
 
 同一 \`worker_id\` 的并发 start 只返回同一个有效租约；有未结束任务时不能切换网站，网站停用后不能恢复执行。没有有效任务时才领取新任务；没有任务时返回 \`data.task = null\`。领取后请核对：
 
-- \`account_policy\` 返回本次授权的 \`login_email\`、\`verification_method\`、\`verification_path\`、\`mailbox_url\` 和 \`public_contact_email\`。\`allow_logout=false\` 表示禁止自动注销；\`requires_account_review=true\` 时先只读核实 \`previous_submission_email\` 对应的历史结果。
+- \`account_policy\` 返回本次授权的 \`login_email\`、\`verification_method\`、\`verification_path\` 和 \`public_contact_email\`。\`allow_logout=false\` 表示禁止自动注销；\`requires_account_review=true\` 时先只读核实 \`previous_submission_email\` 对应的历史结果。
 
 - \`product.id\` 与传入的 \`website_id\` 一致；
 - \`product.auto_backlink_enabled\` 为 true，否则停止该网站的任务；
@@ -399,7 +396,7 @@ needs_user / blocked / skipped 必须同时传 \`reason\`，取下表中最贴�
 | \`reciprocal\` | 自动安装或验证徽章遇到实际阻碍；仅“目标要求徽章”不能作为转人工的理由 |
 | \`account\` | 登录、注册、密码或账号状态问题 |
 | \`email_verify\` | 收不到验证邮件或验证码 |
-| \`email_send\` | 目标站要求从特定邮箱发信/回复而无法完成；仅公开联系邮箱只能收信不影响 Gmail 登录 |
+| \`email_send\` | 目标站要求从特定邮箱发信或回复，而该地址无法完成 |
 | \`missing_info\` | 产品资料缺少表单需要的内容 |
 | \`queue_full\` | 免费名额或发布排期已满 |
 | \`site_down\` | 站点失效、被 WAF 拦截、无法访问或目标站明确的数据库/RLS/权限错误 |

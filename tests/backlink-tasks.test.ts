@@ -77,7 +77,7 @@ const {
   updateWebsite,
   createWebsite,
 } = await import('../src/modules/backlinks/websites');
-const { DEFAULT_SUBMISSION_ACCOUNT, PAVO_SUBMISSION_EMAIL } =
+const { PAVO_SUBMISSION_EMAIL } =
   await import('../src/config/submission-account');
 const { readVerificationMail, receiveVerificationMail, verificationOf } =
   await import('../src/modules/backlinks/verification-mail');
@@ -202,10 +202,7 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
       task.account_policy.verification_path,
       `/api/v1/backlink-tasks/${task.id}/verification-email`
     );
-    assert.equal(
-      (await claim(other)).task?.product.registration_email,
-      DEFAULT_SUBMISSION_ACCOUNT.email
-    );
+    assert.equal((await claim(other)).task?.product.registration_email, null);
     const request = {
       worker_id: `${id}-worker`,
       lease_id: task.lease_id,
@@ -661,15 +658,13 @@ test('a historical support-email identity requires review without changing the s
     attemptCount: 1,
   });
   const task = (await claim(id)).task!;
-  assert.equal(task.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(task.product.email, null);
   assert.equal(task.product.submission_email, 'support@product.example');
-  assert.equal(task.product.email_capability, 'send_capable');
+  assert.equal(task.product.email_capability, 'unknown');
   assert.equal(task.product.submission_identity_review_required, true);
   assert.equal(task.account_policy.allow_logout, false);
-  assert.equal(
-    task.account_policy.login_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
+  assert.equal(task.account_policy.login_email, null);
+  assert.equal(task.account_policy.verification_method, 'unavailable');
   assert.equal(
     task.account_policy.previous_submission_email,
     'support@product.example'
@@ -683,8 +678,8 @@ test('a historical support-email identity requires review without changing the s
     })
     .where(eq(website.id, id));
   const oldIdentity = (await getTask(id, task.id)).product;
-  assert.equal(oldIdentity.email, DEFAULT_SUBMISSION_ACCOUNT.email);
-  assert.equal(oldIdentity.email_capability, 'send_capable');
+  assert.equal(oldIdentity.email, null);
+  assert.equal(oldIdentity.email_capability, 'unknown');
 
   const lease = { worker_id: `${id}-worker`, lease_id: task.lease_id };
   const parked = await reportResult(id, task.id, {
@@ -696,7 +691,7 @@ test('a historical support-email identity requires review without changing the s
   assert.equal(parked.status, 'needs_user');
 });
 
-test('personal login and verification inbox stay separate from public contact across claims and retries', async () => {
+test('unavailable login stays separate from public contact across claims and retries', async () => {
   const id = await fixture();
   await db()
     .update(website)
@@ -715,17 +710,11 @@ test('personal login and verification inbox stay separate from public contact ac
   const task = claims[0].task!;
   assert.equal(task.product.contact_email, 'support@product.example');
   assert.equal(task.product.contact_email_capability, 'receive_only');
-  assert.equal(task.product.submission_email, DEFAULT_SUBMISSION_ACCOUNT.email);
-  assert.equal(
-    task.product.registration_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
-  assert.equal(task.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
-  assert.equal(
-    task.product.verification_inbox_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
-  assert.equal(task.product.email_capability, 'send_capable');
+  assert.equal(task.product.submission_email, null);
+  assert.equal(task.product.registration_email, null);
+  assert.equal(task.product.email, null);
+  assert.equal(task.product.verification_inbox_email, null);
+  assert.equal(task.product.email_capability, 'unknown');
   assert.equal(task.product.registration_password, null);
   assert.equal(task.product.submission_identity_review_required, false);
   await reportResult(id, task.id, {
@@ -741,14 +730,11 @@ test('personal login and verification inbox stay separate from public contact ac
     .where(eq(website.id, id));
   await retryRecords(id, [task.id]);
   const retried = (await claim(id)).task!;
-  assert.equal(
-    retried.product.submission_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
+  assert.equal(retried.product.submission_email, null);
   assert.equal(retried.product.contact_email, 'support@product.example');
 });
 
-test('existing and new projects share the default Gmail without sharing public contact emails', async () => {
+test('projects outside the pilot have no default login or verification inbox', async () => {
   const id = await fixture();
   await db()
     .update(website)
@@ -767,47 +753,39 @@ test('existing and new projects share the default Gmail without sharing public c
   const first = productOf(await requireWebsite(id, id));
   const second = productOf(await requireWebsite(id, `${id}-other`));
   for (const product of [first, second]) {
-    assert.equal(product.registration_email, DEFAULT_SUBMISSION_ACCOUNT.email);
-    assert.equal(
-      product.verification_inbox_email,
-      DEFAULT_SUBMISSION_ACCOUNT.email
-    );
-    assert.equal(
-      product.email_management_url,
-      DEFAULT_SUBMISSION_ACCOUNT.mailboxUrl
-    );
-    assert.equal(product.email_capability, 'send_capable');
+    assert.equal(product.registration_email, null);
+    assert.equal(product.verification_method, 'unavailable');
+    assert.equal(product.verification_inbox_email, null);
+    assert.equal(product.email_management_url, null);
+    assert.equal(product.email_capability, 'unknown');
   }
   assert.equal(first.contact_email, 'support@first.example');
   assert.equal(second.contact_email, 'hello@second.example');
   const task = (await claim(id)).task!;
-  assert.equal(task.product.submission_email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(task.product.submission_email, null);
   assert.equal(task.product.contact_email, 'support@first.example');
 
   const fresh = await createWebsite(id, {
     url: 'https://third.example',
     shortDesc: 'New project',
-    ownerEmail: DEFAULT_SUBMISSION_ACCOUNT.email,
+    ownerEmail: 'owner@example.test',
   });
   assert.equal(fresh.email, '');
   assert.equal(productOf(fresh).contact_email, null);
   assert.ok(
     productOf(fresh).submission_readiness.missing_fields.includes('email')
   );
-  assert.equal(fresh.registrationEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
-  assert.equal(fresh.verificationInboxEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(fresh.registrationEmail, '');
+  assert.equal(fresh.verificationInboxEmail, '');
   const saved = await updateWebsite(id, fresh.id, {
     ...fresh,
     email: 'team@third.example',
   });
   assert.equal(saved.email, 'team@third.example');
-  assert.equal(
-    productOf(saved).registration_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
+  assert.equal(productOf(saved).registration_email, null);
 });
 
-test('fresh pending records capture the login email while legacy attempts require identity review', async () => {
+test('fresh tasks can run without a login while legacy attempts require identity review', async () => {
   const id = await fixture();
   await db()
     .update(website)
@@ -819,14 +797,8 @@ test('fresh pending records capture the login email while legacy attempts requir
     .where(eq(website.id, id));
   await record(id, 'fresh', 'pending');
   const fresh = (await claim(id, { data_source: 'website' })).task!;
-  assert.equal(
-    fresh.product.submission_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
-  assert.equal(
-    fresh.product.verification_inbox_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
+  assert.equal(fresh.product.submission_email, null);
+  assert.equal(fresh.product.verification_inbox_email, null);
   await reportResult(id, fresh.id, {
     worker_id: `${id}-worker`,
     lease_id: fresh.lease_id,
@@ -840,11 +812,8 @@ test('fresh pending records capture the login email while legacy attempts requir
   const legacy = (await claim(id, { data_source: 'website' })).task!;
   assert.equal(legacy.product.submission_identity_review_required, true);
   assert.equal(legacy.product.submission_email, null);
-  assert.equal(
-    legacy.product.registration_email,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
-  assert.equal(legacy.product.email, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(legacy.product.registration_email, null);
+  assert.equal(legacy.product.email, null);
   assert.equal(legacy.account_policy.requires_account_review, true);
   assert.equal(legacy.account_policy.allow_logout, false);
   assert.equal(legacy.product.contact_email, 'support@product.example');
@@ -885,12 +854,12 @@ test('mailbox settings reject invalid identities and survive older profile updat
     ...oldBody
   } = w;
   const saved = await updateWebsite(id, id, oldBody);
-  assert.equal(saved.registrationEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
-  assert.equal(saved.verificationInboxEmail, DEFAULT_SUBMISSION_ACCOUNT.email);
+  assert.equal(saved.registrationEmail, '');
+  assert.equal(saved.verificationInboxEmail, '');
   const [stored] = await db().select().from(website).where(eq(website.id, id));
   assert.equal(stored.registrationEmail, settings.registrationEmail);
   assert.equal(stored.verificationInboxEmail, settings.verificationInboxEmail);
-  assert.equal(productOf(saved).email_capability, 'send_capable');
+  assert.equal(productOf(saved).email_capability, 'unknown');
   await assert.rejects(
     updateWebsite('someone-else', id, {
       ...w,
@@ -898,10 +867,7 @@ test('mailbox settings reject invalid identities and survive older profile updat
     }),
     /not found/
   );
-  assert.equal(
-    (await requireWebsite(id, id)).registrationEmail,
-    DEFAULT_SUBMISSION_ACCOUNT.email
-  );
+  assert.equal((await requireWebsite(id, id)).registrationEmail, '');
 });
 
 test('company founding facts are optional, validated, and never inferred from product launch dates', async () => {

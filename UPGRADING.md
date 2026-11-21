@@ -663,3 +663,9 @@ Some sites use unrelated sender or verification link domains and require manual
 handling. Workers KV can take about a minute or longer to show a new message.
 To roll back, disable the exact Email Routing rule and remove the pilot vars
 and binding from the next deployment.
+
+The retired shared mailbox is no longer a fallback. Projects without an
+enabled Backlora mailbox return `verification_method: unavailable` and a
+null login email. They can still run tasks without an account requirement.
+Previous submission identity snapshots remain available for review. Replace
+any old copied instructions before resuming an automation.

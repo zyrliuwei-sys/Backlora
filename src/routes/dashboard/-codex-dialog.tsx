@@ -195,7 +195,6 @@ export function CodexDialog({
         taskScope: scope,
         container,
         backlinkManagementUrl: site.data?.backlinkManagementUrl,
-        emailManagementUrl: site.data?.emailManagementUrl,
       }),
     [
       baseUrl,
