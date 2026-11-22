@@ -69,8 +69,8 @@ const embed = await page.evaluate(captureBadgeEmbed, { buttonText: 'Copy Dark Em
 export function buildSubmissionIdentityInstructions() {
   return `【注册身份与公开联系邮箱】
 以当前任务的 account_policy 为准。普通邮箱注册使用 login_email，邮件验证使用 verification_path。只支持 Google 登录的目标站使用 google_login_email 和 google_login_path。公开联系邮箱使用 product.contact_email。
-1. 缺少目标站所需的可用账号时回传 needs_user（reason=account），说明缺少哪种登录方式；无需登录和邮箱验证的入口可继续。不要使用历史邮箱、公开联系邮箱或浏览器中的其他账号作为备用。
-2. 先查看实际账号邮箱。Google 登录只复用用户已在 Ego 登录的 google_login_email，并在选择账号或授权前向 google_login_path 发 POST（worker_id、lease_id）绑定当前任务。看到其他账号、自动选错账号、需要手输 Google 密码、手机验证或恢复时暂停，保留现有会话并记录 account。只有外站明确要求普通邮箱密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
+1. 优先选择无需登录或支持普通邮箱的免费入口。缺少目标站所需的可用账号时只回传当前任务 needs_user（reason=account），说明缺少哪种登录方式。如果本批还有额度，继续领取下一条。不要使用历史邮箱、公开联系邮箱或浏览器中的其他账号作为备用。
+2. Google 登录只复用 Ego 中已登录的 google_login_email。确认能复用后，在选择账号或授权前向 google_login_path 发 POST（worker_id、lease_id）绑定当前任务。若没有可用会话、账号不符，或页面要求手输 Google 密码、手机验证、账号恢复，保留现有会话并回传该条 needs_user/account。如果本批还有额度，继续领取下一条。不要要求用户登录 Google、交接浏览器或等待用户回复。只有外站明确要求普通邮箱密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
 3. 在目标站请求验证码或验证链接前记录当前 ISO 时间 requested_after。请求发出后用当前 worker_id、lease_id 和 requested_after 向本任务的 verification_path 发 POST，每约 15 秒查一次，最多等约 3 分钟。只在 status=received 时使用 code 或目标站验证链接 link。若 requires_account_review=true，先核对旧账号和提交记录。找不到匹配邮件回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
 4. product.contact_email 只用于公开联系方式；product.submission_email 是历史任务快照。submission_identity_review_required=true 时只读核对旧账号、草稿、listing 和收件证据。不能确认历史结果时回传 needs_user（reason=account）。已发布资料保留原链接和证据，不为切换邮箱重复创建。Gravatar 等共用个人资料页不得覆盖已有姓名、头像、其他产品链接或无关资料。
 5. product.email_capability 对应本任务注册邮箱，contact_email_capability 对应公开联系邮箱。只有目标站要求从特定地址发信或回复而确实无法完成时才记录 email_send。目标站和自有网站管理员后台需要分别核对登录会话。
@@ -94,7 +94,7 @@ export function buildSubmissionRecoveryInstructions() {
   return `【提交预检与失败恢复】
 本节补充目标站预检与失败分类；恢复旧任务时保留已有证据，不把所有未公开的结果都当成失败。
 1. submitted（已收件或待审核）、live（已公开）和 duplicate 都保留，不重新发送；待审核不记作失败。先检查现有 listing、草稿和收件记录，再决定是否需要任何外部写入。
-2. 只支持 Google 登录时使用当前任务明确授权的 google_login_email。login_provider=google 表示该任务已绑定此账号，继续复用。旧 reason=account 的任务先核对已有账号、草稿、listing 和收件记录；仅在先前明确未创建账号且未提交并完成查重后，才可在绑定 Google 时传 confirmed_no_prior_account=true。无法确定时回传 needs_user/account，保留旧记录。
+2. 只支持 Google 登录的站点若没有可复用的授权会话，结束该条并回传 needs_user/account，本批有额度就继续领下一条。login_provider=google 表示任务已绑定该账号。旧 reason=account 的任务先核对已有账号、草稿、listing 和收件记录；仅在先前明确未创建账号且未提交并完成查重后，才可在绑定 Google 时传 confirmed_no_prior_account=true。无法确定时保留旧记录并回传 needs_user/account。
 3. 填表前核对目标站当前收录条件与必填资料。公司成立年份取 product.company.founded_year 或 product.metadata.company_founded_year，总部地址取 product.company.headquarters 或 product.location；不能拿产品 launch_date 代替公司成立年份，不能随机生成地址、备案或公司资质。GeekWire 的 https://www.geekwire.com/submit-startup/ 还要求总部位于其指定的 Washington、Oregon、Idaho 或 British Columbia 地区等资格，以现行官方页面为准。缺事实记录 needs_user/missing_info 并列出准确字段；已知不符收录条件记录 skipped/forbidden，不为通过校验编造资料。
 4. 免费提交要求互链时先核实官方提交页和精确 HTML。官方明确要求的合作方链接，即使域名与目录或产品不同，也不能仅凭跨域判定为“无关链接”。例如 DokeyAI 的 https://dokeyai.com/submit 免费步骤明确给出合作方代码；须记录实际来源 URL、官方说明和原始 HTML，再按已获授权的徽章安装/公开验证流程继续。广告、评论、弹窗或无法确认来源的链接不属于这项授权；用户明确禁止的互链仍遵守。安装或校验遇到真实阻碍记 reciprocal，不能直接改记 paid 或要求购买套餐。
 5. 目标站提供免费方案但免费排期无空位（如 LaunchitX）时，检查官方可选的后续免费日期或免费候补入口；仍无位置则记录 needs_user/queue_full，附检查范围与时间。免费队列满不是“只有付费”，不得因此把外链库改成 paid。只在确实没有免费提交路径时才使用 paid，不购买套餐、不反复点提交。
@@ -210,7 +210,7 @@ ${startRequest}
 8. 每个任务结束后立刻按接口文档调用 result，如实回传状态、结果地址和必要证据；失败必须选具体 reason。人机校验选 captcha，邮件验证码选 email_verify，后台权限或徽章验证选 reciprocal，Google 身份不匹配选 account，结果不明选 result_unknown，租约超时选 lease_expired；只有确实无法归类时才用 other。回传失败时按文档重试或续领，总数不超过本批上限。
 
 【异常与结束】
-- 必须付费、无法自动完成，或等待重试后仍无进展：写明具体原因并回传 needs_user；目标站故障等情况按文档选择状态，然后继续下一个。
+- 必须付费、无法自动完成，或等待重试后仍无进展：写明具体原因并回传 needs_user；目标站故障等情况按文档选择状态。没有可用 Google 会话时也只结束这一条，已回传的阻塞任务计入处理数，有额度就继续下一个。
 - API 鉴权失败、API 故障无法恢复或浏览器不可用时，结束本批。
 - 最后汇总：处理数量、API 已确认的各状态数量、结果地址和未完成原因；回传失败的任务单独列出。未领到任务时写明实际发送的 data_source、task_scope、category（若省略则写不限）与 include_paid。
 
@@ -364,7 +364,7 @@ Backlora 直接收件时，向 \`POST /api/v1/backlink-tasks/{task_id}/verificat
 
 ## 使用已授权的 Google 账号
 
-只支持 Google 登录的站点，在选择账号或授权前调用 \`POST /api/v1/backlink-tasks/{task_id}/google-login\`，传 \`worker_id\` 和 \`lease_id\`。接口只给当前任务绑定配置中的固定 Google 账号；用返回的 \`google_login_email\` 核对 Ego 的账号选择页。旧的账号阻塞任务只有在确认先前未创建账号、未提交时才传 \`confirmed_no_prior_account=true\`。绑定后该任务用 Google 账号，邮件验证码接口限于普通邮箱流程。
+只支持 Google 登录的站点，确认 Ego 已有授权账号的可用会话后，在选择账号或授权前调用 \`POST /api/v1/backlink-tasks/{task_id}/google-login\`，传 \`worker_id\` 和 \`lease_id\`。没有可复用会话或需要本人验证时，向 result 回传该条 needs_user/account，本批有额度就继续领取下一条。旧的账号阻塞任务只有在确认先前未创建账号、未提交时才传 \`confirmed_no_prior_account=true\`。邮件验证码接口限于普通邮箱流程。
 
 ## 查询任务
 

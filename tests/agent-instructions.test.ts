@@ -154,12 +154,18 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.includes('product.submission_email'));
       assert.ok(instructions.includes('verification_inbox_email'));
       assert.ok(instructions.includes('google_login_path'));
+      assert.ok(instructions.includes('如果本批还有额度，继续领取下一条'));
+      assert.ok(
+        instructions.includes(
+          '不要要求用户登录 Google、交接浏览器或等待用户回复'
+        )
+      );
       assert.ok(
         instructions.includes('submission_identity_review_required=true')
       );
       assert.ok(instructions.startsWith(buildSubmissionIdentityInstructions()));
       assert.ok(instructions.includes('unavailable'));
-      assert.ok(instructions.includes('无需登录和邮箱验证'));
+      assert.ok(instructions.includes('无需登录或支持普通邮箱的免费入口'));
       assert.doesNotMatch(
         instructions,
         /wldesign1983|mail\.google\.com|共享 Gmail/i
@@ -177,7 +183,7 @@ test('saved-job upgrade removes conflicting account rules and preserves credenti
   assert.ok(updated.includes('test-only-placeholder'));
   assert.ok(updated.includes('最多处理 7 个任务'));
   assert.ok(updated.includes('Gravatar'));
-  assert.ok(updated.includes('保留现有会话并记录 account'));
+  assert.ok(updated.includes('保留现有会话并回传该条 needs_user/account'));
   assert.equal(upgradeSubmissionIdentityPrompt(updated), updated);
 });
 
