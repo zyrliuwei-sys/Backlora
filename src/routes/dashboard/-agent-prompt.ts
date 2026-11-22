@@ -160,6 +160,18 @@ export function buildPrimaryPrompt(
     o.category === 'all'
       ? '本次不限外链分类：调用 start 时省略 category。'
       : `本次只处理分类为 \`${o.category}\` 的外链：调用 start 时传入 category=\`${o.category}\`。`;
+  const startRequest = JSON.stringify(
+    {
+      worker_id: 'codex-<uuid>',
+      ...(o.websiteId ? { website_id: o.websiteId } : {}),
+      data_source: o.dataSource,
+      task_scope: o.taskScope,
+      include_paid: false,
+      ...(o.category !== 'all' ? { category: o.category } : {}),
+    },
+    null,
+    2
+  );
 
   return `按照本提示词和末尾附带的接口文档，完成一批外链提交任务。
 
@@ -178,7 +190,11 @@ ${buildBadgeCopyInstructions(o.baseUrl)}
 
 【准备】
 1. 先通读末尾的接口文档。以 start 返回的 product 作为唯一资料来源，可以据此撰写、翻译或改写文案，但不得编造事实。
-2. 每次触发生成一个新的 worker_id（格式 codex-<uuid>），本批所有请求共用。调用 start 时传 data_source=\`{dataSource}\`、task_scope=\`{taskScope}\`、include_paid=false${o.websiteId ? '、website_id=`{websiteId}`' : ''}。
+2. 调用 POST /api/v1/backlink-tasks/start 时使用下面的本批请求参数，只将 worker_id 换成本批新生成的 codex-<uuid>，本批所有请求共用。没有 category 就省略该字段。不要用接口文档的参数示例替换本批设置。
+
+\`\`\`json
+${startRequest}
+\`\`\`
 
 3. 每个产品在本批开始时只做一次互链能力预检：调用 GET /api/websites/{product.id}/badge-connection；ready=true 时使用下文的专用安装接口。尚未连接时才打开其互链配置地址，核对权限。跳到 sign-in/settings、401、403 都属于后台访问不可用。缓存该结果，直接提交机会可继续。
 4. 目标站登录前按本任务 account_policy 核对账号；公开联系方式使用项目企业邮箱。旧 submission_email 不同则核实历史结果。
@@ -196,7 +212,7 @@ ${buildBadgeCopyInstructions(o.baseUrl)}
 【异常与结束】
 - 必须付费、无法自动完成，或等待重试后仍无进展：写明具体原因并回传 needs_user；目标站故障等情况按文档选择状态，然后继续下一个。
 - API 鉴权失败、API 故障无法恢复或浏览器不可用时，结束本批。
-- 最后汇总：处理数量、API 已确认的各状态数量、结果地址和未完成原因；回传失败的任务单独列出。
+- 最后汇总：处理数量、API 已确认的各状态数量、结果地址和未完成原因；回传失败的任务单独列出。未领到任务时写明实际发送的 data_source、task_scope、category（若省略则写不限）与 include_paid。
 
 ${categoryLine}
 
@@ -310,15 +326,9 @@ ${buildSubmissionRecoveryInstructions()}
 
 \`\`\`http
 POST /api/v1/backlink-tasks/start
-
-{
-  "worker_id": "codex-<uuid>",
-  "website_id": "<WEBSITE_ID>",
-  "data_source": "website",
-  "task_scope": "recommended",
-  "category": "directory"
-}
 \`\`\`
+
+请求体使用主提示词中本批已选的参数。未选择外链分类时省略 category。
 
 - \`website_id\`：可选，必须是当前用户的网站；省略时由服务端在开启了自动外链的网站中轮流选择。
 - \`data_source\`：\`website\`（只领取网站已有的待执行记录）、\`plaza\`（外链广场，按需创建记录）、\`personal\`（个人外链库，按需创建记录）。plaza / personal 也会先领取来源匹配的已有待执行记录。

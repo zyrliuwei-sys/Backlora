@@ -674,3 +674,8 @@ Set `vars.BACKLORA_PAVO_GOOGLE_EMAIL` to optionally authorize one Google account
 for the PavoAI pilot. A live task must bind it through the Google login endpoint
 before selecting the account in the browser. The task keeps that identity in its
 existing submission email snapshot. No credentials or database migration needed.
+
+PavoAI commands copied from the website queue now default to the broader
+eligible scope with known paid entries excluded. Recopy older commands so
+the first request uses the selected scope and category rather than a generic
+API example.

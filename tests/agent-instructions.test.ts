@@ -81,6 +81,29 @@ test('standalone API contract includes the same complete procedure without crede
   assert.ok(!doc.includes(options.apiKey));
 });
 
+test('each generated command uses its selected task scope and adds a category only when selected', () => {
+  const scopes = ['recommended', 'all_eligible'] as const;
+  for (const taskScope of scopes) {
+    for (const category of ['all', 'directory']) {
+      const primary = buildPrimaryPrompt({ ...options, taskScope, category });
+      const copied = buildAgentInstructions({ baseUrl, primary, custom: '' });
+      const example = copied.match(
+        /POST \/api\/v1\/backlink-tasks\/start[^\n]*\n\n```json\n([\s\S]*?)\n```/
+      )?.[1];
+      assert.ok(example);
+      assert.deepEqual(JSON.parse(example), {
+        worker_id: 'codex-<uuid>',
+        website_id: options.websiteId,
+        data_source: options.dataSource,
+        task_scope: taskScope,
+        include_paid: false,
+        ...(category === 'all' ? {} : { category }),
+      });
+      assert.equal(copied.match(/"task_scope":/g)?.length, 1);
+    }
+  }
+});
+
 test('a selected project includes its configured Google address in the copied identity section', () => {
   const googleLoginEmail = 'work@example.test';
   const account = { websiteId: options.websiteId, googleLoginEmail };

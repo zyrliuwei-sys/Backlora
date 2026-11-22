@@ -10,6 +10,7 @@ import {
   type AutomationContainer,
   type TaskScope,
 } from '@/config/backlinks';
+import { PAVO_SUBMISSION_EMAIL } from '@/config/submission-account';
 import { apiGet, type PageResult } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Button } from '@/components/ui/button';
@@ -122,7 +123,7 @@ export function CodexDialog({
   const [dataSource, setDataSource] = useState<Source>(defaultSource);
   const [category, setCategory] = useState('all');
   const [num, setNum] = useState(10);
-  const [scope, setScope] = useState<TaskScope>('recommended');
+  const [scopeChoice, setScope] = useState<TaskScope | null>(null);
   const [container, setContainer] =
     useState<AutomationContainer>('ego-browser');
   const [primary, setPrimary] = useState('');
@@ -137,7 +138,7 @@ export function CodexDialog({
     setDataSource(defaultSource);
     setCategory('all');
     setNum(10);
-    setScope('recommended');
+    setScope(null);
     setContainer('ego-browser');
     setPrimaryEdited(false);
   }, [open, initialWebsiteId, defaultSource]);
@@ -183,6 +184,12 @@ export function CodexDialog({
   const readiness = site.data?.submission_readiness;
   const websiteId = siteId === AUTO ? null : siteId;
   const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
+  const scope =
+    scopeChoice ??
+    (site.data?.registrationEmail === PAVO_SUBMISSION_EMAIL &&
+    dataSource === 'website'
+      ? 'all_eligible'
+      : 'recommended');
 
   const baseUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const generated = useMemo(
