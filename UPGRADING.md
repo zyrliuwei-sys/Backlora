@@ -4,6 +4,15 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-22 — Simplify website project forms
+
+The product section groups the website fields, contact settings, and media.
+The Agent submission switch sits in its card header. Internal notes, public
+mailbox capability, and the generic metadata editor have been removed from
+the form. Existing values still round-trip through the website API. Company
+founding year remains editable in Location, and automated badge installation
+remains available. No migration is required.
+
 ## 2026-11-20 — Remove the sign-up password control from website forms
 
 Authorized agent tasks can still use previously saved sign-up passwords. Use

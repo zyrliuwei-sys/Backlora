@@ -1,13 +1,10 @@
-import { useRef, useState, type ReactNode } from 'react';
-import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
+import { useId, useRef, useState, type ReactNode } from 'react';
+import { ImageIcon, Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  COMPANY_FOUNDED_YEAR_KEY,
-  EMAIL_CAPABILITIES,
-  PRICE_MODELS,
-} from '@/config/backlinks';
+import { COMPANY_FOUNDED_YEAR_KEY, PRICE_MODELS } from '@/config/backlinks';
 import { apiUpload } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,12 +22,6 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
 import type { Website } from './-shared';
-
-const emailCapabilityLabel = {
-  unknown: () => m['dash.form.email_capability_unknown'](),
-  receive_only: () => m['dash.form.email_capability_receive_only'](),
-  send_capable: () => m['dash.form.email_capability_send_capable'](),
-} as const;
 
 export type WebsiteForm = Omit<
   Website,
@@ -147,7 +138,7 @@ function Section({
   children,
 }: {
   title: string;
-  desc: string;
+  desc?: string;
   extra?: ReactNode;
   children: ReactNode;
 }) {
@@ -156,8 +147,8 @@ function Section({
       <CardContent className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="font-semibold">{title}</div>
-            <div className="text-muted-foreground text-sm">{desc}</div>
+            <h2 className="font-semibold">{title}</h2>
+            {desc && <p className="text-muted-foreground text-sm">{desc}</p>}
           </div>
           {extra}
         </div>
@@ -169,20 +160,22 @@ function Section({
 
 function F({
   label,
+  htmlFor,
   required,
   hint,
   children,
   wide,
 }: {
   label: string;
+  htmlFor?: string;
   required?: boolean;
   hint?: string;
   children: ReactNode;
   wide?: boolean;
 }) {
   return (
-    <div className={wide ? 'space-y-1.5 sm:col-span-2' : 'space-y-1.5'}>
-      <Label>
+    <div className={cn('min-w-0 space-y-1.5', wide && 'sm:col-span-2')}>
+      <Label htmlFor={htmlFor}>
         {label}
         {required && <span className="text-destructive">*</span>}
       </Label>
@@ -199,13 +192,17 @@ const IMAGE_TYPES = 'image/png,image/jpeg,image/webp,image/gif,image/avif';
  * configured, else to public/uploads (see /api/storage/upload-image).
  */
 function ImageUrl({
+  id,
   value,
   onChange,
   placeholder,
+  preview,
 }: {
+  id?: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  preview?: 'icon' | 'screenshot';
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -239,17 +236,34 @@ function ImageUrl({
   };
   return (
     <div className="space-y-2">
-      {value ? (
-        <img
-          src={value}
-          alt=""
-          className="bg-muted h-16 w-16 rounded-md border object-cover"
-        />
-      ) : (
-        <div className="bg-muted h-16 w-16 rounded-md border" />
-      )}
+      <div
+        className={cn(
+          'grid place-items-center overflow-hidden rounded-lg border',
+          preview ? 'bg-muted/40 h-24 p-2' : 'bg-muted size-16'
+        )}
+      >
+        {value ? (
+          <img
+            src={value}
+            alt=""
+            className={cn(
+              'block',
+              preview === 'icon' && 'size-14 rounded-lg object-contain',
+              preview === 'screenshot' &&
+                'max-h-full max-w-full object-contain',
+              !preview && 'size-16 object-cover'
+            )}
+          />
+        ) : preview ? (
+          <ImageIcon
+            aria-hidden="true"
+            className="text-muted-foreground size-5"
+          />
+        ) : null}
+      </div>
       <div className="flex gap-2">
         <Input
+          id={id}
           value={value}
           disabled={uploading}
           onChange={(e) => onChange(e.target.value)}
@@ -356,6 +370,7 @@ export function WebsiteFields({
   onChange: (v: WebsiteForm) => void;
   only?: 'core';
 }) {
+  const fieldId = useId();
   const set = <K extends keyof WebsiteForm>(k: K, val: WebsiteForm[K]) =>
     onChange({ ...v, [k]: val });
   const shot = (i: number, url: string) => {
@@ -386,98 +401,108 @@ export function WebsiteFields({
 
   return (
     <div className="space-y-4">
-      <Section
-        title={m['dash.form.product']()}
-        desc={m['dash.form.product_desc']()}
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <F label={m['dash.common.name']()} required>
-            <Input
-              value={v.name}
-              onChange={(e) => set('name', e.target.value)}
-            />
-          </F>
-          <F label={m['dash.form.internal_note']()}>
-            <Input
-              value={v.internalNote}
-              onChange={(e) => set('internalNote', e.target.value)}
-            />
-          </F>
-          <F label="URL" required>
-            <Input
-              value={v.url}
-              onChange={(e) => set('url', e.target.value)}
-              placeholder="https://example.com"
-            />
-          </F>
-          <F label={m['dash.form.email']()} hint={m['dash.form.email_hint']()}>
-            <Input
-              type="email"
-              value={v.email}
-              onChange={(e) => set('email', e.target.value)}
-              placeholder="support@example.com"
-            />
-          </F>
-          <F
-            label={m['dash.form.email_capability']()}
-            hint={m['dash.form.email_capability_hint']()}
-          >
-            <Select
-              value={v.emailCapability}
-              onValueChange={(x) =>
-                x && set('emailCapability', x as WebsiteForm['emailCapability'])
-              }
-              items={EMAIL_CAPABILITIES.map((capability) => ({
-                value: capability,
-                label: emailCapabilityLabel[capability](),
-              }))}
+      <Section title={m['dash.form.product']()}>
+        <div className="@container space-y-5">
+          <div className="grid gap-4 @xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.85fr)]">
+            <F
+              label={m['dash.common.name']()}
+              htmlFor={`${fieldId}-name`}
+              required
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EMAIL_CAPABILITIES.map((capability) => (
-                  <SelectItem key={capability} value={capability}>
-                    {emailCapabilityLabel[capability]()}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </F>
-          <F
-            label={m['dash.form.google_login_email']()}
-            hint={m['dash.form.google_login_email_hint']()}
-          >
-            <Input
-              type="email"
-              autoComplete="off"
-              value={v.googleLoginEmail ?? ''}
-              onChange={(e) => set('googleLoginEmail', e.target.value)}
-              placeholder="name@example.com"
-            />
-          </F>
-          <F label={m['dash.form.launch_date']()}>
-            <Input
-              type="date"
-              value={v.launchDate}
-              onChange={(e) => set('launchDate', e.target.value)}
-            />
-          </F>
-          <F label={m['dash.form.icon']()}>
-            <ImageUrl value={v.iconUrl} onChange={(x) => set('iconUrl', x)} />
-          </F>
-          <F label={m['dash.form.screenshot']({ n: 1 })}>
-            <ImageUrl
-              value={v.screenshotUrls[0] ?? ''}
-              onChange={(x) => shot(0, x)}
-            />
-          </F>
-          <F label={m['dash.form.screenshot']({ n: 2 })}>
-            <ImageUrl
-              value={v.screenshotUrls[1] ?? ''}
-              onChange={(x) => shot(1, x)}
-            />
-          </F>
+              <Input
+                id={`${fieldId}-name`}
+                value={v.name}
+                onChange={(e) => set('name', e.target.value)}
+                aria-required="true"
+              />
+            </F>
+            <F label="URL" htmlFor={`${fieldId}-url`} required>
+              <Input
+                id={`${fieldId}-url`}
+                value={v.url}
+                onChange={(e) => set('url', e.target.value)}
+                placeholder="https://example.com"
+                aria-required="true"
+              />
+            </F>
+            <F label={m['dash.form.launch_date']()} htmlFor={`${fieldId}-date`}>
+              <Input
+                id={`${fieldId}-date`}
+                type="date"
+                value={v.launchDate}
+                onChange={(e) => set('launchDate', e.target.value)}
+              />
+            </F>
+          </div>
+          <div className="grid gap-4 border-t pt-5 @lg:grid-cols-2">
+            <F label={m['dash.form.email']()} htmlFor={`${fieldId}-contact`}>
+              <Input
+                id={`${fieldId}-contact`}
+                type="email"
+                value={v.email}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="support@example.com"
+                aria-describedby={`${fieldId}-contact-hint`}
+              />
+              <p
+                id={`${fieldId}-contact-hint`}
+                className="text-muted-foreground text-xs leading-relaxed"
+              >
+                {m['dash.form.email_hint']()}
+              </p>
+            </F>
+            <F
+              label={m['dash.form.google_login_email']()}
+              htmlFor={`${fieldId}-google`}
+            >
+              <Input
+                id={`${fieldId}-google`}
+                type="email"
+                autoComplete="off"
+                value={v.googleLoginEmail ?? ''}
+                onChange={(e) => set('googleLoginEmail', e.target.value)}
+                placeholder="name@example.com"
+                aria-describedby={`${fieldId}-google-hint`}
+              />
+              <p
+                id={`${fieldId}-google-hint`}
+                className="text-muted-foreground text-xs leading-relaxed"
+              >
+                {m['dash.form.google_login_email_hint']()}
+              </p>
+            </F>
+          </div>
+          <div className="space-y-3 border-t pt-5">
+            <h3 className="text-sm font-semibold">
+              {m['dash.form.product_media']()}
+            </h3>
+            <div className="grid gap-4 @xl:grid-cols-3">
+              <F label={m['dash.form.icon']()} htmlFor={`${fieldId}-icon`}>
+                <ImageUrl
+                  id={`${fieldId}-icon`}
+                  preview="icon"
+                  value={v.iconUrl}
+                  onChange={(x) => set('iconUrl', x)}
+                />
+              </F>
+              {[0, 1].map((index) => (
+                <F
+                  key={index}
+                  label={m['dash.form.screenshot']({ n: index + 1 })}
+                  htmlFor={`${fieldId}-screenshot-${index}`}
+                >
+                  <ImageUrl
+                    id={`${fieldId}-screenshot-${index}`}
+                    preview="screenshot"
+                    value={v.screenshotUrls[index] ?? ''}
+                    onChange={(x) => shot(index, x)}
+                  />
+                </F>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-4 border-t pt-5 sm:grid-cols-2">
           <F label={m['dash.form.short_desc']()} required wide>
             <Textarea
               rows={3}
@@ -608,32 +633,34 @@ export function WebsiteFields({
           <Section
             title={m['dash.form.agent']()}
             desc={m['dash.form.agent_desc']()}
+            extra={
+              <Switch
+                aria-label={m['dash.form.auto']()}
+                checked={v.autoBacklinkEnabled}
+                onCheckedChange={(x) => set('autoBacklinkEnabled', x)}
+                className="mt-0.5 shrink-0"
+              />
+            }
           >
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="border-t pt-4">
               <F
                 label={m['dash.form.backlink_mgmt']()}
-                hint={m['dash.form.backlink_mgmt_hint']()}
+                htmlFor={`${fieldId}-backlink-admin`}
               >
                 <Input
+                  id={`${fieldId}-backlink-admin`}
                   value={v.backlinkManagementUrl}
                   onChange={(e) => set('backlinkManagementUrl', e.target.value)}
                   placeholder="https://yoursite.com/admin"
+                  aria-describedby={`${fieldId}-backlink-admin-hint`}
                 />
+                <p
+                  id={`${fieldId}-backlink-admin-hint`}
+                  className="text-muted-foreground text-xs leading-relaxed"
+                >
+                  {m['dash.form.backlink_mgmt_hint']()}
+                </p>
               </F>
-              <label className="bg-muted/30 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5 sm:col-span-2">
-                <div>
-                  <div className="text-sm font-medium">
-                    {m['dash.form.auto']()}
-                  </div>
-                  <div className="text-muted-foreground text-xs">
-                    {m['dash.form.auto_hint']()}
-                  </div>
-                </div>
-                <Switch
-                  checked={v.autoBacklinkEnabled}
-                  onCheckedChange={(x) => set('autoBacklinkEnabled', x)}
-                />
-              </label>
             </div>
           </Section>
 
@@ -799,67 +826,6 @@ export function WebsiteFields({
                   }
                 />
               </F>
-            </div>
-          </Section>
-
-          <Section
-            title={m['dash.form.metadata']()}
-            desc={m['dash.form.metadata_desc']()}
-          >
-            <div className="space-y-2">
-              {v.metadata.map((md, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    className="max-w-[220px]"
-                    value={md.key}
-                    placeholder={m['dash.form.meta_key']()}
-                    onChange={(e) =>
-                      set(
-                        'metadata',
-                        v.metadata.map((x, j) =>
-                          j === i ? { ...x, key: e.target.value } : x
-                        )
-                      )
-                    }
-                  />
-                  <Input
-                    value={md.value}
-                    placeholder={m['dash.form.meta_value']()}
-                    onChange={(e) =>
-                      set(
-                        'metadata',
-                        v.metadata.map((x, j) =>
-                          j === i ? { ...x, value: e.target.value } : x
-                        )
-                      )
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      set(
-                        'metadata',
-                        v.metadata.filter((_, j) => j !== i)
-                      )
-                    }
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  set('metadata', [...v.metadata, { key: '', value: '' }])
-                }
-              >
-                <Plus className="size-4" />
-                {m['dash.form.add_field']()}
-              </Button>
             </div>
           </Section>
         </>
