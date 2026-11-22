@@ -1,5 +1,13 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
-import { ImageIcon, Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
+import {
+  ImageIcon,
+  Link2,
+  Loader2,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { COMPANY_FOUNDED_YEAR_KEY, PRICE_MODELS } from '@/config/backlinks';
@@ -9,6 +17,15 @@ import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -187,22 +204,98 @@ function F({
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/webp,image/gif,image/avif';
 
+function MediaLinkEditor({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  const field = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const edit = m['dash.form.media_edit_link']();
+  const apply = (url: string) => {
+    onChange(url.trim());
+    setOpen(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraft(value);
+        setOpen(next);
+      }}
+    >
+      <DialogTrigger
+        render={<Button type="button" variant="ghost" size="sm" />}
+        disabled={disabled}
+        aria-label={m['dash.form.media_action']({ action: edit, asset: label })}
+      >
+        <Link2 />
+        {edit}
+      </DialogTrigger>
+      <DialogContent initialFocus={field}>
+        <DialogHeader>
+          <DialogTitle>
+            {m['dash.form.media_link_title']({ asset: label })}
+          </DialogTitle>
+        </DialogHeader>
+        <Input
+          ref={field}
+          aria-label={m['dash.form.media_link_title']({ asset: label })}
+          inputMode="url"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="https://…"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            apply(draft);
+          }}
+        />
+        <DialogFooter>
+          {value && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive sm:mr-auto"
+              onClick={() => apply('')}
+            >
+              {m['dash.form.media_remove']()}
+            </Button>
+          )}
+          <DialogClose render={<Button type="button" variant="outline" />}>
+            {m['dash.common.cancel']()}
+          </DialogClose>
+          <Button type="button" onClick={() => apply(draft)}>
+            {m['dash.form.media_apply']()}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Image field: paste a URL or upload a file. Uploads go to R2 when storage is
  * configured, else to public/uploads (see /api/storage/upload-image).
  */
 function ImageUrl({
-  id,
   value,
   onChange,
-  placeholder,
-  preview,
+  asset,
 }: {
-  id?: string;
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
-  preview?: 'icon' | 'screenshot';
+  asset?: { kind: 'icon' | 'screenshot'; label: string };
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -234,51 +327,103 @@ function ImageUrl({
       if (input.current) input.current.value = '';
     }
   };
-  return (
-    <div className="space-y-2">
+  const fileInput = (
+    <input
+      ref={input}
+      type="file"
+      accept={IMAGE_TYPES}
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (file) upload(file);
+      }}
+    />
+  );
+  const uploadIcon = uploading ? (
+    <Loader2 className="animate-spin" />
+  ) : (
+    <Upload />
+  );
+
+  if (asset) {
+    const isIcon = asset.kind === 'icon';
+    const uploadLabel = value
+      ? m['dash.form.media_replace']()
+      : m['dash.form.upload']();
+    return (
       <div
         className={cn(
-          'grid place-items-center overflow-hidden rounded-lg border',
-          preview ? 'bg-muted/40 h-24 p-2' : 'bg-muted size-16'
+          'min-w-0 overflow-hidden rounded-lg border',
+          isIcon && 'flex items-center gap-2 p-2.5'
         )}
       >
-        {value ? (
-          <img
-            src={value}
-            alt=""
-            className={cn(
-              'block',
-              preview === 'icon' && 'size-14 rounded-lg object-contain',
-              preview === 'screenshot' &&
-                'max-h-full max-w-full object-contain',
-              !preview && 'size-16 object-cover'
-            )}
-          />
-        ) : preview ? (
-          <ImageIcon
-            aria-hidden="true"
-            className="text-muted-foreground size-5"
-          />
-        ) : null}
+        {fileInput}
+        <div
+          className={cn(
+            'bg-muted/40 relative grid shrink-0 place-items-center overflow-hidden',
+            isIcon ? 'size-10 rounded-md border' : 'aspect-video border-b'
+          )}
+        >
+          {value ? (
+            <img
+              src={value}
+              alt=""
+              className="absolute inset-0 size-full object-contain"
+            />
+          ) : (
+            <ImageIcon
+              aria-hidden="true"
+              className="text-muted-foreground size-5"
+            />
+          )}
+        </div>
+        <div
+          className={cn(
+            'flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 gap-y-1',
+            !isIcon && 'px-3 py-2'
+          )}
+        >
+          <span className="text-sm font-medium">{asset.label}</span>
+          <div className="flex items-center gap-1">
+            <MediaLinkEditor
+              label={asset.label}
+              value={value}
+              onChange={onChange}
+              disabled={uploading}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploading}
+              aria-label={m['dash.form.media_action']({
+                action: uploadLabel,
+                asset: asset.label,
+              })}
+              onClick={() => input.current?.click()}
+            >
+              {uploadIcon}
+              {uploadLabel}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="bg-muted size-16 overflow-hidden rounded-lg border">
+        {value && <img src={value} alt="" className="size-16 object-cover" />}
       </div>
       <div className="flex gap-2">
         <Input
-          id={id}
           value={value}
           disabled={uploading}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? 'https://…'}
+          placeholder="https://…"
         />
-        <input
-          ref={input}
-          type="file"
-          accept={IMAGE_TYPES}
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) upload(file);
-          }}
-        />
+        {fileInput}
         <Button
           type="button"
           variant="outline"
@@ -287,11 +432,7 @@ function ImageUrl({
           aria-label={m['dash.form.upload']()}
           onClick={() => input.current?.click()}
         >
-          {uploading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Upload className="size-4" />
-          )}
+          {uploadIcon}
         </Button>
         {value && (
           <Button
@@ -476,28 +617,22 @@ export function WebsiteFields({
             <h3 className="text-sm font-semibold">
               {m['dash.form.product_media']()}
             </h3>
-            <div className="grid gap-4 @xl:grid-cols-3">
-              <F label={m['dash.form.icon']()} htmlFor={`${fieldId}-icon`}>
-                <ImageUrl
-                  id={`${fieldId}-icon`}
-                  preview="icon"
-                  value={v.iconUrl}
-                  onChange={(x) => set('iconUrl', x)}
-                />
-              </F>
+            <ImageUrl
+              asset={{ kind: 'icon', label: m['dash.form.icon']() }}
+              value={v.iconUrl}
+              onChange={(x) => set('iconUrl', x)}
+            />
+            <div className="grid gap-3 @lg:grid-cols-2">
               {[0, 1].map((index) => (
-                <F
+                <ImageUrl
                   key={index}
-                  label={m['dash.form.screenshot']({ n: index + 1 })}
-                  htmlFor={`${fieldId}-screenshot-${index}`}
-                >
-                  <ImageUrl
-                    id={`${fieldId}-screenshot-${index}`}
-                    preview="screenshot"
-                    value={v.screenshotUrls[index] ?? ''}
-                    onChange={(x) => shot(index, x)}
-                  />
-                </F>
+                  asset={{
+                    kind: 'screenshot',
+                    label: m['dash.form.screenshot']({ n: index + 1 }),
+                  }}
+                  value={v.screenshotUrls[index] ?? ''}
+                  onChange={(x) => shot(index, x)}
+                />
               ))}
             </div>
           </div>

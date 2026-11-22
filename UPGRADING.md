@@ -13,6 +13,10 @@ the form. Existing values still round-trip through the website API. Company
 founding year remains editable in Location, and automated badge installation
 remains available. No migration is required.
 
+Product media uses a compact icon row and two screenshot previews. Uploads
+remain available next to each asset. Edit link opens the URL editor, which
+also allows removing the image before saving the website.
+
 ## 2026-11-20 — Remove the sign-up password control from website forms
 
 Authorized agent tasks can still use previously saved sign-up passwords. Use
