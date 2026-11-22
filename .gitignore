@@ -60,6 +60,8 @@ yarn-error.log*
 /drizzle/*
 !/drizzle/0004_backlink_import_batches.sql
 !/drizzle/0005_unique_backlink_urls.sql
+!/drizzle/0006_sad_dracula.sql
+!/drizzle/0007_perfect_luke_cage.sql
 src/config/db/schema.ts
 
 # npm (project uses pnpm)

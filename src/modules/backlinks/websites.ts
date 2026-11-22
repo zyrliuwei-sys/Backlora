@@ -28,11 +28,7 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
-import {
-  directMailEnabled,
-  googleLoginEmailOf,
-  PAVO_SUBMISSION_EMAIL,
-} from '@/config/submission-account';
+import { directSubmissionEmailOf } from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
@@ -79,7 +75,6 @@ export type WebsiteView = Omit<
   | 'metadata'
   | 'registrationPassword'
 > & {
-  googleLoginEmail: string | null;
   hasRegistrationPassword: boolean;
   screenshotUrls: string[];
   categories: string[];
@@ -105,7 +100,6 @@ export function viewWebsite({
   return {
     ...w,
     registrationEmail: registrationEmailOf(w) ?? '',
-    googleLoginEmail: googleLoginEmailOf(w),
     registrationEmailCapability: registrationCapabilityOf(w),
     verificationInboxEmail: registrationEmailOf(w) ?? '',
     emailManagementUrl: '',
@@ -151,6 +145,7 @@ export function sanitizeWebsiteInput(
       | 'registrationEmail'
       | 'registrationEmailCapability'
       | 'verificationInboxEmail'
+      | 'googleLoginEmail'
     >
   > = {};
   for (const field of [
@@ -169,6 +164,15 @@ export function sanitizeWebsiteInput(
     if (!oneOf(body.registrationEmailCapability, EMAIL_CAPABILITIES))
       throw new BacklinkError('Invalid registrationEmailCapability');
     mailbox.registrationEmailCapability = body.registrationEmailCapability;
+  }
+  if (body?.googleLoginEmail !== undefined) {
+    const input: unknown = body.googleLoginEmail;
+    if (input !== null && typeof input !== 'string')
+      throw new BacklinkError('Google login email must be an email address');
+    const value = input?.trim().toLowerCase() || null;
+    if (value && (value.length > 200 || !isEmail(value)))
+      throw new BacklinkError('Invalid Google login email');
+    mailbox.googleLoginEmail = value;
   }
   return {
     name: str(body?.name, 200) || new URL(url).hostname.replace(/^www\./, ''),
@@ -248,17 +252,17 @@ export type Readiness = {
   invalid_fields: string[];
 };
 
-/** The pilot uses a dedicated address on the configured website. */
+/** Only verified routes on explicitly configured project domains are usable. */
 export function registrationEmailOf(
   w: Pick<Website, 'id' | 'url'>
 ): string | null {
-  return directMailEnabled(w) ? PAVO_SUBMISSION_EMAIL : null;
+  return directSubmissionEmailOf(w);
 }
 
 export function registrationCapabilityOf(
   w: Pick<Website, 'id' | 'url'>
 ): EmailCapability {
-  return directMailEnabled(w) ? 'receive_only' : 'unknown';
+  return directSubmissionEmailOf(w) ? 'receive_only' : 'unknown';
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -324,7 +328,7 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || null,
     registration_email: registrationEmail,
-    google_login_email: googleLoginEmailOf(w),
+    google_login_email: w.googleLoginEmail,
     verification_inbox_email: registrationEmail,
     verification_method: registrationEmail
       ? ('backlora' as const)

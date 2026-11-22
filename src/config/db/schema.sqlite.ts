@@ -923,6 +923,8 @@ export const website = table(
     emailCapability: text('email_capability').notNull().default('unknown'),
     // External account identity; email above remains the public contact.
     registrationEmail: text('registration_email').notNull().default(''),
+    // Optional external Google OAuth identity; independently set per project.
+    googleLoginEmail: text('google_login_email'),
     registrationEmailCapability: text('registration_email_capability')
       .notNull()
       .default('unknown'),
@@ -987,6 +989,7 @@ export const websiteBacklink = table(
     // Snapshot the identity used for this task so changing a website profile
     // cannot silently make an old task use a different mailbox.
     submissionEmail: text('submission_email'),
+    submissionAuthProvider: text('submission_auth_provider'),
     // null = manual record (never leased to an agent).
     backlinkId: text('backlink_id').references(() => backlink.id, {
       onDelete: 'set null',

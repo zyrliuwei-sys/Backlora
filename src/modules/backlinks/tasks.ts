@@ -38,10 +38,6 @@ import {
   type Website,
   type WebsiteBacklink,
 } from '@/config/db/schema';
-import {
-  googleLoginEmailOf,
-  PAVO_SUBMISSION_EMAIL,
-} from '@/config/submission-account';
 import { getUuid } from '@/lib/hash';
 
 import {
@@ -74,11 +70,16 @@ async function taskView(userId: string, r: WebsiteBacklink) {
   // configured login email. Require an account check before using that task.
   const submissionEmail = r.submissionEmail;
   const googleEmail = product.google_login_email;
-  const usesGoogle =
+  const matchesGoogle =
     !!googleEmail && submissionEmail?.toLowerCase() === googleEmail;
+  const previouslyUsedGoogle =
+    r.submissionAuthProvider === 'google' ||
+    (matchesGoogle && submissionEmail !== product.registration_email);
+  const usesGoogle = previouslyUsedGoogle && matchesGoogle;
   const identityReviewRequired = submissionEmail
-    ? !usesGoogle &&
-      submissionEmail.toLowerCase() !==
+    ? previouslyUsedGoogle
+      ? !matchesGoogle
+      : submissionEmail.toLowerCase() !==
         product.registration_email?.toLowerCase()
     : r.attemptCount > 1 ||
       (r.attemptCount > 0 && !!product.registration_email);
@@ -650,20 +651,25 @@ export async function bindTaskGoogleLogin(
   if (!leaseId) throw new BacklinkError('lease_id is required');
   const record = await recordOf(userId, id);
   const w = await requireWebsite(userId, record.websiteId);
-  const email = googleLoginEmailOf(w);
+  const email = w.googleLoginEmail;
   if (!email || !w.autoBacklinkEnabled || w.status !== 'enabled')
     throw new BacklinkError('Google login unavailable for this website', 409);
 
   // Allow a retry only after the agent confirms an earlier account-only
   // blockage never reached account creation or submission.
   const canBind =
-    record.submissionEmail === PAVO_SUBMISSION_EMAIL &&
+    record.submissionAuthProvider !== 'google' &&
+    record.submissionEmail === registrationEmailOf(w) &&
     !record.submittedAt &&
     !record.resultUrl &&
     (record.attemptCount === 1 ||
       (record.failureReason === 'account' &&
         body.confirmed_no_prior_account === true));
-  if (record.submissionEmail !== email && !canBind)
+  const isBound =
+    record.submissionEmail === email &&
+    (record.submissionAuthProvider === 'google' ||
+      email !== registrationEmailOf(w));
+  if (!isBound && !canBind)
     throw new BacklinkError(
       'Review the prior submission account before using Google login',
       409
@@ -671,7 +677,7 @@ export async function bindTaskGoogleLogin(
 
   const [row]: { id: string }[] = await db()
     .update(websiteBacklink)
-    .set({ submissionEmail: email })
+    .set({ submissionEmail: email, submissionAuthProvider: 'google' })
     .where(
       and(
         eq(websiteBacklink.id, id),
@@ -679,7 +685,10 @@ export async function bindTaskGoogleLogin(
         eq(websiteBacklink.operationStatus, 'in_progress'),
         eq(websiteBacklink.claimedBy, workerId),
         eq(websiteBacklink.leaseId, leaseId),
-        eq(websiteBacklink.submissionEmail, record.submissionEmail!),
+        record.submissionEmail === null
+          ? isNull(websiteBacklink.submissionEmail)
+          : eq(websiteBacklink.submissionEmail, record.submissionEmail),
+        sql`exists (select 1 from ${website} where ${website.id} = ${record.websiteId} and ${website.userId} = ${userId} and ${website.googleLoginEmail} = ${email} and ${website.deletedAt} is null and ${website.status} = 'enabled' and ${website.autoBacklinkEnabled} = 1)`,
         gt(websiteBacklink.leaseExpiresAt, new Date())
       )
     )

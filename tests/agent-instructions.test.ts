@@ -131,6 +131,21 @@ test('a selected project includes its configured Google address in the copied id
   );
 });
 
+test('a project uses its enterprise registration address without exposing it in the generic API doc', () => {
+  const registrationEmail = 'submit@gridcraft.example';
+  const account = { websiteId: options.websiteId, registrationEmail };
+  const primary = buildPrimaryPrompt({ ...options, ...account });
+  const copied = buildAgentInstructions({
+    baseUrl,
+    primary,
+    custom: '',
+    ...account,
+  });
+  assert.ok(copied.split('\n')[1].includes(registrationEmail));
+  assert.equal(copied.split(registrationEmail).length - 1, 1);
+  assert.ok(!buildApiDoc(baseUrl).includes(registrationEmail));
+});
+
 test('all runners and edited prompts retain separate login, inbox and public-contact rules', () => {
   for (const container of [
     'ego-browser',

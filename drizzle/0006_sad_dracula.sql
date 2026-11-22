@@ -1,0 +1,1 @@
+ALTER TABLE `website` ADD `google_login_email` text;

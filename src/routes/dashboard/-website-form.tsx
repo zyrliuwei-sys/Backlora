@@ -7,7 +7,6 @@ import {
   EMAIL_CAPABILITIES,
   PRICE_MODELS,
 } from '@/config/backlinks';
-import { PAVO_SUBMISSION_EMAIL } from '@/config/submission-account';
 import { apiUpload } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +34,15 @@ const emailCapabilityLabel = {
 
 export type WebsiteForm = Omit<
   Website,
-  'id' | 'counts' | 'createdAt' | 'updatedAt' | 'hasRegistrationPassword'
+  | 'id'
+  | 'counts'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'hasRegistrationPassword'
+  | 'registrationEmail'
+  | 'registrationEmailCapability'
+  | 'verificationInboxEmail'
+  | 'emailManagementUrl'
 >;
 
 export function emptyWebsite(url = ''): WebsiteForm {
@@ -46,10 +53,7 @@ export function emptyWebsite(url = ''): WebsiteForm {
     internalNote: '',
     email: '',
     emailCapability: 'unknown',
-    registrationEmail: '',
     googleLoginEmail: null,
-    registrationEmailCapability: 'unknown',
-    verificationInboxEmail: '',
     launchDate: '',
     iconUrl: '',
     screenshotUrls: [],
@@ -63,7 +67,6 @@ export function emptyWebsite(url = ''): WebsiteForm {
     lowestPrice: '',
     links: [],
     backlinkManagementUrl: '',
-    emailManagementUrl: '',
     autoBacklinkEnabled: true,
     agentSubmissionNote: '',
     ownerAvatarUrl: '',
@@ -84,6 +87,10 @@ export function toWebsiteForm(w: Website): WebsiteForm {
     createdAt: _createdAt,
     updatedAt: _updatedAt,
     hasRegistrationPassword: _hasRegistrationPassword,
+    registrationEmail: _registrationEmail,
+    registrationEmailCapability: _registrationEmailCapability,
+    verificationInboxEmail: _verificationInboxEmail,
+    emailManagementUrl: _emailManagementUrl,
     ...rest
   } = w;
   return { ...emptyWebsite(), ...rest };
@@ -437,6 +444,18 @@ export function WebsiteFields({
               </SelectContent>
             </Select>
           </F>
+          <F
+            label={m['dash.form.google_login_email']()}
+            hint={m['dash.form.google_login_email_hint']()}
+          >
+            <Input
+              type="email"
+              autoComplete="off"
+              value={v.googleLoginEmail ?? ''}
+              onChange={(e) => set('googleLoginEmail', e.target.value)}
+              placeholder="name@example.com"
+            />
+          </F>
           <F label={m['dash.form.launch_date']()}>
             <Input
               type="date"
@@ -444,7 +463,6 @@ export function WebsiteFields({
               onChange={(e) => set('launchDate', e.target.value)}
             />
           </F>
-          <div className="hidden sm:block" />
           <F label={m['dash.form.icon']()}>
             <ImageUrl value={v.iconUrl} onChange={(x) => set('iconUrl', x)} />
           </F>
@@ -593,80 +611,6 @@ export function WebsiteFields({
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <F
-                label={m['dash.form.registration_email']()}
-                hint={
-                  v.registrationEmail === PAVO_SUBMISSION_EMAIL
-                    ? m['dash.form.registration_email_direct_hint']()
-                    : m['dash.form.registration_email_hint']()
-                }
-              >
-                <Input
-                  type="email"
-                  autoComplete="off"
-                  value={v.registrationEmail}
-                  readOnly
-                  onChange={(e) => set('registrationEmail', e.target.value)}
-                />
-              </F>
-              <F
-                label={m['dash.form.verification_inbox_email']()}
-                hint={
-                  v.registrationEmail === PAVO_SUBMISSION_EMAIL
-                    ? m['dash.form.verification_inbox_direct_hint']()
-                    : m['dash.form.verification_inbox_email_hint']()
-                }
-              >
-                <Input
-                  type="email"
-                  autoComplete="off"
-                  value={v.verificationInboxEmail}
-                  readOnly
-                  onChange={(e) =>
-                    set('verificationInboxEmail', e.target.value)
-                  }
-                />
-              </F>
-              {v.googleLoginEmail && (
-                <F
-                  label={m['dash.form.google_login_email']()}
-                  hint={m['dash.form.google_login_email_hint']()}
-                >
-                  <Input type="email" value={v.googleLoginEmail} readOnly />
-                </F>
-              )}
-              <F
-                label={m['dash.form.registration_email_capability']()}
-                hint={m['dash.form.registration_email_capability_hint']()}
-                wide
-              >
-                <Select
-                  value={v.registrationEmailCapability}
-                  disabled
-                  onValueChange={(x) =>
-                    x &&
-                    set(
-                      'registrationEmailCapability',
-                      x as WebsiteForm['registrationEmailCapability']
-                    )
-                  }
-                  items={EMAIL_CAPABILITIES.map((capability) => ({
-                    value: capability,
-                    label: emailCapabilityLabel[capability](),
-                  }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EMAIL_CAPABILITIES.map((capability) => (
-                      <SelectItem key={capability} value={capability}>
-                        {emailCapabilityLabel[capability]()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </F>
-              <F
                 label={m['dash.form.backlink_mgmt']()}
                 hint={m['dash.form.backlink_mgmt_hint']()}
               >
@@ -690,17 +634,6 @@ export function WebsiteFields({
                   onCheckedChange={(x) => set('autoBacklinkEnabled', x)}
                 />
               </label>
-              <F
-                label={m['dash.form.agent_note']()}
-                hint={m['dash.form.agent_note_hint']()}
-                wide
-              >
-                <Textarea
-                  rows={3}
-                  value={v.agentSubmissionNote}
-                  onChange={(e) => set('agentSubmissionNote', e.target.value)}
-                />
-              </F>
             </div>
           </Section>
 

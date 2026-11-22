@@ -1,0 +1,1 @@
+ALTER TABLE `website_backlink` ADD `submission_auth_provider` text;

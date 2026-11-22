@@ -670,12 +670,27 @@ null login email. They can still run tasks without an account requirement.
 Previous submission identity snapshots remain available for review. Replace
 any old copied instructions before resuming an automation.
 
-Set `vars.BACKLORA_PAVO_GOOGLE_EMAIL` to optionally authorize one Google account
-for the PavoAI pilot. A live task must bind it through the Google login endpoint
-before selecting the account in the browser. The task keeps that identity in its
-existing submission email snapshot. No credentials or database migration needed.
+Google login is now configured in each website's product info. Add the nullable
+`website.google_login_email` and `website_backlink.submission_auth_provider`
+columns before deploying. Empty Google settings skip
+Google-only sites, and existing projects start empty. The former PavoAI
+environment variable is no longer used. The Google login endpoint still pins
+an eligible task to that project's saved account before browser sign-in.
 
 PavoAI commands copied from the website queue now default to the broader
 eligible scope with known paid entries excluded. Recopy older commands so
 the first request uses the selected scope and category rather than a generic
 API example.
+
+For multiple projects, set `vars.BACKLORA_SUBMISSION_DOMAINS` to a JSON string
+mapping each approved website ID to its verified domain. Configure one exact
+`submit@<domain>` Email Routing rule to Backlora for each entry. Website IDs
+and domains must match the project URL, and each domain can serve only one
+project. Retain the existing KV binding. No database migration is required.
+The old single-site setting remains a fallback for installations that have
+not configured the map. Copy fresh prompts before resuming older jobs.
+
+## Website editor
+
+The website editor no longer shows the Agent submission note field. Existing
+notes remain stored and available through the Agent API.

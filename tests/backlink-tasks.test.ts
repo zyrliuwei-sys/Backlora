@@ -156,9 +156,10 @@ const claim = (id: string, extra = {}) =>
     ...extra,
   });
 
-test('PavoAI verification mail is limited to the matching sender, owner and active lease', async () => {
+test('verification mail is scoped to the configured project, sender, owner and active lease', async () => {
   const id = await fixture();
   const other = await fixture();
+  const grid = await fixture();
   await db()
     .update(website)
     .set({
@@ -170,6 +171,10 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
     .update(website)
     .set({ url: 'https://pavoai.net/' })
     .where(eq(website.id, other));
+  await db()
+    .update(website)
+    .set({ url: 'https://gridcraft.me/' })
+    .where(eq(website.id, grid));
 
   const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
   const original = runtime.__CF_ENV__;
@@ -178,7 +183,10 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
   process.env.CONFIG_ENCRYPTION_KEY = 'isolated-mail-test-key';
   runtime.__CF_ENV__ = {
     ...original,
-    BACKLORA_MAIL_WEBSITE_ID: id,
+    BACKLORA_SUBMISSION_DOMAINS: JSON.stringify({
+      [id]: 'pavoai.net',
+      [grid]: 'gridcraft.me',
+    }),
     VERIFICATION_MAIL: {
       get: async (name: string) => stored.get(name) ?? null,
       put: async (
@@ -203,6 +211,8 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
       `/api/v1/backlink-tasks/${task.id}/verification-email`
     );
     assert.equal((await claim(other)).task?.product.registration_email, null);
+    const gridTask = (await claim(grid)).task!;
+    assert.equal(gridTask.product.registration_email, 'submit@gridcraft.me');
     const request = {
       worker_id: `${id}-worker`,
       lease_id: task.lease_id,
@@ -232,8 +242,23 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
       status: 'waiting',
     });
 
+    await receive('mail.directory.example.test', 'pass', 'submit@gridcraft.me');
+    assert.deepEqual(await readVerificationMail(id, task.id, request), {
+      status: 'waiting',
+    });
+    assert.equal(
+      (
+        await readVerificationMail(grid, gridTask.id, {
+          worker_id: `${grid}-worker`,
+          lease_id: gridTask.lease_id,
+          requested_after: request.requested_after,
+        })
+      ).status,
+      'received'
+    );
+
     await receive('mail.directory.example.test', 'pass');
-    assert.equal(stored.size, 1);
+    assert.equal(stored.size, 2);
     assert.match([...stored.values()][0], /^enc:v1:/);
     const received = await readVerificationMail(id, task.id, request);
     assert.equal(received.status, 'received');
@@ -266,31 +291,51 @@ test('PavoAI verification mail is limited to the matching sender, owner and acti
   }
 });
 
-test('Google login is scoped to the configured PavoAI project and pins a task to the approved account', async () => {
+test('the per-project Google setting can be set or cleared and pins a task to the approved account', async () => {
   const id = await fixture();
   const other = await fixture();
+  const inbox = 'submit@gridcraft.me';
   await db()
     .update(website)
-    .set({ url: 'https://pavoai.net/' })
+    .set({ url: 'https://gridcraft.me/' })
     .where(eq(website.id, id));
   await db()
     .update(website)
-    .set({ url: 'https://pavoai.net/' })
+    .set({ url: 'https://gridcraft.me/' })
     .where(eq(website.id, other));
   const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
   const original = runtime.__CF_ENV__;
-  const email = 'work-google@example.test';
+  const email = inbox;
+  const profile = await requireWebsite(id, id);
+  await assert.rejects(
+    updateWebsite(id, id, { ...profile, googleLoginEmail: 'invalid address' }),
+    /Invalid Google login email/
+  );
+  assert.equal(
+    (
+      await updateWebsite(id, id, {
+        ...profile,
+        googleLoginEmail: ' Submit@GridCraft.Me ',
+      })
+    ).googleLoginEmail,
+    email
+  );
+  const { googleLoginEmail: _google, ...olderProfile } = profile;
+  assert.equal(
+    (await updateWebsite(id, id, olderProfile)).googleLoginEmail,
+    email
+  );
   runtime.__CF_ENV__ = {
     ...original,
-    BACKLORA_MAIL_WEBSITE_ID: id,
-    BACKLORA_PAVO_GOOGLE_EMAIL: email,
+    BACKLORA_SUBMISSION_DOMAINS: JSON.stringify({ [id]: 'gridcraft.me' }),
     VERIFICATION_MAIL: {},
   };
   try {
     const { task } = await claim(id);
     assert.ok(task?.lease_id);
     assert.equal(task.account_policy.google_login_email, email);
-    assert.equal(task.product.submission_email, PAVO_SUBMISSION_EMAIL);
+    assert.equal(task.product.submission_email, inbox);
+    assert.equal(task.account_policy.login_provider, 'email');
     assert.ok(task.account_policy.verification_path);
     assert.equal(
       (await claim(other)).task?.account_policy.google_login_email,
@@ -304,10 +349,7 @@ test('Google login is scoped to the configured PavoAI project and pins a task to
       bindTaskGoogleLogin(id, task.id, { ...auth, lease_id: 'bad' }),
       { status: 409 }
     );
-    assert.equal(
-      (await getTask(id, task.id)).product.submission_email,
-      PAVO_SUBMISSION_EMAIL
-    );
+    assert.equal((await getTask(id, task.id)).product.submission_email, inbox);
     assert.equal(
       (await bindTaskGoogleLogin(id, task.id, auth)).google_login_email,
       email
@@ -321,6 +363,15 @@ test('Google login is scoped to the configured PavoAI project and pins a task to
       (await bindTaskGoogleLogin(id, task.id, auth)).google_login_email,
       email
     );
+    await updateWebsite(id, id, { ...profile, googleLoginEmail: '' });
+    const cleared = await getTask(id, task.id);
+    assert.equal(cleared.account_policy.google_login_email, null);
+    assert.equal(cleared.account_policy.google_login_path, null);
+    assert.equal(cleared.product.submission_email, email);
+    assert.equal(cleared.account_policy.requires_account_review, true);
+    await assert.rejects(bindTaskGoogleLogin(id, task.id, auth), {
+      status: 409,
+    });
   } finally {
     runtime.__CF_ENV__ = original;
   }

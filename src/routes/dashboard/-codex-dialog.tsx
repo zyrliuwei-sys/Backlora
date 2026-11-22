@@ -184,6 +184,7 @@ export function CodexDialog({
   const readiness = site.data?.submission_readiness;
   const websiteId = siteId === AUTO ? null : siteId;
   const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
+  const registrationEmail = websiteId ? site.data?.registrationEmail : null;
   const scope =
     scopeChoice ??
     (site.data?.registrationEmail === PAVO_SUBMISSION_EMAIL &&
@@ -199,6 +200,7 @@ export function CodexDialog({
         apiKey: apiKey || '<API_KEY>',
         websiteId,
         googleLoginEmail,
+        registrationEmail,
         dataSource,
         category,
         num,
@@ -211,6 +213,7 @@ export function CodexDialog({
       apiKey,
       websiteId,
       googleLoginEmail,
+      registrationEmail,
       dataSource,
       category,
       num,
@@ -240,6 +243,7 @@ export function CodexDialog({
       custom,
       websiteId,
       googleLoginEmail,
+      registrationEmail,
     });
     try {
       await navigator.clipboard.writeText(text);

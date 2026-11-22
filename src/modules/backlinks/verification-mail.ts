@@ -5,9 +5,9 @@ import PostalMime from 'postal-mime';
 import { db } from '@/core/db';
 import { website, websiteBacklink } from '@/config/db/schema';
 import {
-  directMailEnabled,
+  directSubmissionEmailOf,
   mailBindings,
-  PAVO_SUBMISSION_EMAIL,
+  submissionSiteForRecipient,
 } from '@/config/submission-account';
 import { decryptSecret, encryptSecret, isEncryptedSecret } from '@/lib/crypto';
 
@@ -132,7 +132,7 @@ const activeClaim = (now: Date) =>
   and(
     eq(websiteBacklink.operationStatus, 'in_progress'),
     gt(websiteBacklink.leaseExpiresAt, now),
-    eq(websiteBacklink.submissionEmail, PAVO_SUBMISSION_EMAIL),
+    isNull(websiteBacklink.submissionAuthProvider),
     eq(website.status, 'enabled'),
     eq(website.autoBacklinkEnabled, true),
     isNull(website.deletedAt)
@@ -140,11 +140,12 @@ const activeClaim = (now: Date) =>
 
 export async function receiveVerificationMail(message: EmailEvent) {
   const env = mailBindings();
+  const recipient = message.to.toLowerCase();
+  const siteId = submissionSiteForRecipient(recipient, env);
   if (
     !env.VERIFICATION_MAIL ||
-    !env.BACKLORA_MAIL_WEBSITE_ID ||
+    !siteId ||
     !process.env.CONFIG_ENCRYPTION_KEY ||
-    message.to.toLowerCase() !== PAVO_SUBMISSION_EMAIL ||
     message.rawSize > MAX_BYTES
   )
     return;
@@ -174,11 +175,18 @@ export async function receiveVerificationMail(message: EmailEvent) {
         eq(website.userId, websiteBacklink.userId)
       )
     )
-    .where(and(activeClaim(now), eq(website.id, env.BACKLORA_MAIL_WEBSITE_ID)));
+    .where(
+      and(
+        activeClaim(now),
+        eq(website.id, siteId),
+        eq(websiteBacklink.submissionEmail, recipient)
+      )
+    );
   const matches = candidates.filter((task) => sameSite(sender, task.target));
   if (matches.length !== 1) return;
   const [task] = matches;
-  if (!task.leaseId || !directMailEnabled(task.site, env)) return;
+  if (!task.leaseId || directSubmissionEmailOf(task.site, env) !== recipient)
+    return;
 
   const verification = verificationOf(mail, task.target);
   if (!verification) return;
@@ -231,7 +239,11 @@ export async function readVerificationMail(
 
   async function ownsLease() {
     const [site] = await db()
-      .select({ id: website.id, url: website.url })
+      .select({
+        id: website.id,
+        url: website.url,
+        submissionEmail: websiteBacklink.submissionEmail,
+      })
       .from(websiteBacklink)
       .innerJoin(
         website,
@@ -250,7 +262,10 @@ export async function readVerificationMail(
         )
       )
       .limit(1);
-    return !!site && directMailEnabled(site, env);
+    return (
+      !!site?.submissionEmail &&
+      directSubmissionEmailOf(site, env) === site.submissionEmail
+    );
   }
   if (!(await ownsLease()))
     throw new BacklinkError(

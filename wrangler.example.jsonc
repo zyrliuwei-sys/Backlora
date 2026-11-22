@@ -41,8 +41,8 @@
   // ]
   //
   // Other optional bindings — uncomment when needed:
-  // Optional PavoAI pilot: add BACKLORA_MAIL_WEBSITE_ID to vars and bind
-  // a dedicated KV namespace. See UPGRADING.md for the exact mail route.
+  // Add BACKLORA_SUBMISSION_DOMAINS to vars as a JSON string mapping website
+  // IDs to verified domains, and bind a dedicated KV namespace.
   // "kv_namespaces":  [{ "binding": "VERIFICATION_MAIL", "id": "..." }],
   // "r2_buckets":     [{ "binding": "BUCKET", "bucket_name": "..." }]
 }

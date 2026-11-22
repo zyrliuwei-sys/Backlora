@@ -68,9 +68,9 @@ const embed = await page.evaluate(captureBadgeEmbed, { buttonText: 'Copy Dark Em
 /** Included in the API contract too, so edited prompts retain the identity rules. */
 export function buildSubmissionIdentityInstructions() {
   return `【注册身份与公开联系邮箱】
-以当前任务的 account_policy 为准。普通邮箱注册使用 login_email，邮件验证使用 verification_path。只支持 Google 登录的目标站使用 google_login_email 和 google_login_path。公开联系邮箱使用 product.contact_email。
+以当前任务的 account_policy 为准。普通邮箱注册和登录优先使用项目专用的企业邮箱 login_email（submit@项目域名）。用 verification_path 从 Backlora 获取验证码或验证链接。公开联系邮箱使用 product.contact_email。
 1. 优先选择无需登录或支持普通邮箱的免费入口。缺少目标站所需的可用账号时只回传当前任务 needs_user（reason=account），说明缺少哪种登录方式。如果本批还有额度，继续领取下一条。不要使用历史邮箱、公开联系邮箱或浏览器中的其他账号作为备用。
-2. Google 登录只复用 Ego 中已登录的 google_login_email。确认能复用后，在选择账号或授权前向 google_login_path 发 POST（worker_id、lease_id）绑定当前任务。若没有可用会话、账号不符，或页面要求手输 Google 密码、手机验证、账号恢复，保留现有会话并回传该条 needs_user/account。如果本批还有额度，继续领取下一条。不要要求用户登录 Google、交接浏览器或等待用户回复。只有外站明确要求普通邮箱密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
+2. 仅当目标站没有普通邮箱入口、且任务明确配置 google_login_email 时，才考虑复用 Ego 已登录的该账号。确认能复用后，在选择账号或授权前向 google_login_path 发 POST（worker_id、lease_id）绑定当前任务。未配置、没有可用会话、账号不符或要求本人验证时，保留现有会话并回传该条 needs_user/account。如果本批还有额度，继续领取下一条。不要要求用户登录 Google、交接浏览器或等待用户回复。只有外站明确要求普通邮箱密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
 3. 在目标站请求验证码或验证链接前记录当前 ISO 时间 requested_after。请求发出后用当前 worker_id、lease_id 和 requested_after 向本任务的 verification_path 发 POST，每约 15 秒查一次，最多等约 3 分钟。只在 status=received 时使用 code 或目标站验证链接 link。若 requires_account_review=true，先核对旧账号和提交记录。找不到匹配邮件回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
 4. product.contact_email 只用于公开联系方式；product.submission_email 是历史任务快照。submission_identity_review_required=true 时只读核对旧账号、草稿、listing 和收件证据。不能确认历史结果时回传 needs_user（reason=account）。已发布资料保留原链接和证据，不为切换邮箱重复创建。Gravatar 等共用个人资料页不得覆盖已有姓名、头像、其他产品链接或无关资料。
 5. product.email_capability 对应本任务注册邮箱，contact_email_capability 对应公开联系邮箱。只有目标站要求从特定地址发信或回复而确实无法完成时才记录 email_send。目标站和自有网站管理员后台需要分别核对登录会话。
@@ -83,7 +83,7 @@ export function upgradeSubmissionIdentityPrompt(prompt: string) {
     .replace(/【注册身份与公开联系邮箱】\n[^\n]*(?:\n[1-6]\. [^\n]*)*/g, '')
     .replace(
       /^4\. (?:在目标站登录和注册只能用|目标站登录前核对当前账号邮箱|按末尾“注册身份与公开联系邮箱”规则操作)[^\n]*/gm,
-      '4. 注册、登录和收验证码遵循当前任务的 account_policy；企业邮箱仅作公开联系方式。当前会话不符时保持会话并记录 account。'
+      '4. 按当前任务的 account_policy 使用项目的 submit@ 企业邮箱注册、登录及收验证码；公开联系方式使用 product.contact_email。没有可用账号时记录该条 account，继续下一条。'
     )
     .trim();
   return `${buildSubmissionIdentityInstructions()}\n\n${cleaned}`;
@@ -114,8 +114,17 @@ export function upgradeSubmissionRecoveryPrompt(prompt: string) {
 
 type PromptWebsiteAccount = {
   websiteId: string | null;
+  registrationEmail?: string | null;
   googleLoginEmail?: string | null;
 };
+
+function registrationInstruction({
+  websiteId,
+  registrationEmail,
+}: PromptWebsiteAccount) {
+  if (!websiteId || !registrationEmail) return '';
+  return `本网站注册、登录及验证码邮箱为 \`${registrationEmail}\`，使用 Backlora 直接收件。`;
+}
 
 function googleLoginInstruction({
   websiteId,
@@ -138,6 +147,7 @@ export function buildPrimaryPrompt(
   } & PromptWebsiteAccount
 ) {
   const googleLogin = googleLoginInstruction(o);
+  const registration = registrationInstruction(o);
   const params = [
     `- API 基础地址（BASE_URL）：\`${o.baseUrl}\``,
     `- API Key（apiKey）：\`${o.apiKey}\``,
@@ -148,6 +158,7 @@ export function buildPrimaryPrompt(
     `- 最多处理任务数（num）：\`${o.num}\``,
     `- 任务范围（taskScope）：\`${o.taskScope}\``,
     '- 注册、登录及验证码接收方式：使用 start 返回的 account_policy。',
+    ...(registration ? [`- ${registration}`] : []),
     ...(googleLogin ? [`- ${googleLogin}`] : []),
     `- 外链配置地址（backlinkManagementUrl）：\`${o.backlinkManagementUrl || 'product.backlink_management_url'}\``,
   ];
@@ -231,17 +242,25 @@ export function buildAgentInstructions({
   custom,
   websiteId = null,
   googleLoginEmail,
+  registrationEmail,
 }: {
   baseUrl: string;
   primary: string;
   custom: string;
   websiteId?: string | null;
   googleLoginEmail?: string | null;
+  registrationEmail?: string | null;
 }) {
   const googleLogin = googleLoginInstruction({ websiteId, googleLoginEmail });
+  const registration = registrationInstruction({
+    websiteId,
+    registrationEmail,
+  });
+  const siteAccounts = [registration, googleLogin].filter(Boolean);
   const instructions = upgradeSubmissionRecoveryPrompt(
     [
-      (googleLogin ? primary.replace(`- ${googleLogin}\n`, '') : primary)
+      siteAccounts
+        .reduce((value, item) => value.replace(`- ${item}\n`, ''), primary)
         .replace(buildBadgeCopyInstructions(baseUrl), '')
         .replace(buildSubmissionIdentityInstructions(), '')
         .trim(),
@@ -253,10 +272,10 @@ export function buildAgentInstructions({
       .filter(Boolean)
       .join('\n\n')
   );
-  return googleLogin
+  return siteAccounts.length
     ? instructions.replace(
         '【注册身份与公开联系邮箱】\n',
-        `【注册身份与公开联系邮箱】\n${googleLogin}`
+        `【注册身份与公开联系邮箱】\n${siteAccounts.join(' ')} `
       )
     : instructions;
 }
