@@ -1511,6 +1511,8 @@
   "dash.codex.scope": "任务范围",
   "dash.codex.scope_recommended": "推荐任务（免费、已核验的外链）",
   "dash.codex.scope_all": "探索基础合格任务（排除已知付费）",
+  "dash.codex.scope_website": "推荐优先，排除已知付费",
+  "dash.codex.website_queue_note": "网站队列用尽后，从「我的外链库」里已启用的推荐外链补充。",
   "dash.codex.container": "自动化容器",
   "dash.codex.copy": "复制提示词",
   "dash.codex.copied": "提示词已复制（已附接口文档）",

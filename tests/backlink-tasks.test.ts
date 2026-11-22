@@ -752,6 +752,76 @@ test('known paid targets are excluded by default, opt-in is explicit', async () 
   await assert.rejects(claim(id, { include_paid: 'false' }), /boolean/);
 });
 
+test('legacy website commands claim recommended entries first and continue into eligible pending work', async () => {
+  const id = await fixture('unknown');
+  const preferredId = `${id}-approved-free`;
+  await db()
+    .insert(backlink)
+    .values({
+      id: preferredId,
+      ownerUserId: id,
+      visibility: 'private',
+      name: 'Verified free directory',
+      link: `https://directory.example.test/${preferredId}`,
+      domain: 'directory.example.test',
+      status: 'approved',
+      confidence: 'verified',
+      costType: 'free',
+    });
+  await record(id, 'unknown-cost', 'pending');
+  await record(id, 'free', 'pending', { backlinkId: preferredId });
+
+  const args = { data_source: 'website', task_scope: 'recommended' };
+  assert.equal((await claim(id, args)).task?.id, `${id}-free`);
+  const next = await claim(id, { ...args, worker_id: `${id}-next-worker` });
+  assert.equal(next.task?.id, `${id}-unknown-cost`);
+});
+
+test('a paid-only website queue can claim a fresh recommended personal entry exactly once', async () => {
+  const id = await fixture();
+  const paidUrl = `https://directory.example.test/${id}/known-paid`;
+  await record(id, 'paid-pending', 'pending', {
+    backlinkId: null,
+    targetUrl: paidUrl,
+  });
+  await record(id, 'paid-history', 'needs_user', {
+    websiteId: `${id}-other`,
+    failureReason: 'paid',
+    targetUrl: paidUrl,
+  });
+  const args = { data_source: 'website', task_scope: 'recommended' };
+  const [first, resumed] = await Promise.all([
+    claim(id, args),
+    claim(id, args),
+  ]);
+  assert.equal(first.task?.product.id, id);
+  assert.equal(
+    first.task?.opportunity.submission_url,
+    `https://directory.example.test/${id}`
+  );
+  assert.equal(first.task?.lease_id, resumed.task?.lease_id);
+  assert.ok(
+    [first.queue, resumed.queue].some(
+      (queue) => queue && 'source' in queue && queue.source === 'personal'
+    )
+  );
+
+  const exhausted = await claim(id, {
+    ...args,
+    worker_id: `${id}-next-worker`,
+  });
+  assert.equal(exhausted.task, null);
+  assert.deepEqual(exhausted.queue, {
+    reason: 'no_eligible_website_tasks',
+    pending: 1,
+    requested_scope: 'recommended',
+    effective_scope: 'all_eligible',
+    checked_personal_library: true,
+  });
+  const paid = await getTask(id, `${id}-paid-pending`);
+  assert.equal(paid.status, 'pending');
+});
+
 test('a historical support-email identity requires review without changing the shared login', async () => {
   const id = await fixture();
   await db()

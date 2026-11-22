@@ -211,7 +211,7 @@ ${startRequest}
 4. 目标站登录前按本任务 account_policy 核对账号；公开联系方式使用项目企业邮箱。旧 submission_email 不同则核实历史结果。
 
 【逐个任务】
-1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数；start 返回 task=null 时结束。处理满 \`{num}\` 个后立即停止，不要再调用 start（包括 continue_after_result_failure），直接进入最后汇总；不要为了说明“已达上限”去领取或回传任何任务。任务范围为 all_eligible 时，接口返回的每个任务都要尝试，不要因为类型不同或费用未知就跳过。
+1. 最多处理 \`{num}\` 个不同的任务，无论结果如何都计数。网站队列优先发放推荐任务，再发放其他符合条件的待处理记录。项目中没有可领取记录时，服务端会从用户已启用的推荐外链中为当前项目补充。费用未知时先核对是否有免费入口。start 返回 task=null 时结束，并使用 queue.reason 和 queue.pending 说明本次为什么没有领到任务。处理满 \`{num}\` 个后立即停止，不要再调用 start（包括 continue_after_result_failure），直接进入最后汇总；不要为了说明“已达上限”去领取或回传任何任务。
 2. 按接口文档核对任务、租约和产品。先看 product.submission_readiness：blocking_fields 不为空时直接回传 needs_user，写明缺失或错误的字段，不要打开目标站；其余字段按目标站要求处理。检查通过后，从 opportunity.submission_url 进入，按页面上的真实入口操作。is_retry=true 时先阅读原 proof、result_url、needs_user、last_error、failure_reason，用只读方式检查已有 listing、草稿和收件记录；已有收件不得重复发送，优先恢复原草稿。
 3. 先读任务备注（description、user_notes、library_notes、product.agent_submission_note）和目标站要求，再填写产品资料，包括表单需要且 product 中已有的资料。提交前检查必填项、文件上传和校验错误。
 4. 按“注册身份与公开联系邮箱”和本任务 account_policy 注册、登录及收验证码。旧任务先核实已有结果。product.registration_password 仅用于外站明确要求的密码。
@@ -223,7 +223,7 @@ ${startRequest}
 【异常与结束】
 - 必须付费、无法自动完成，或等待重试后仍无进展：写明具体原因并回传 needs_user；目标站故障等情况按文档选择状态。没有可用 Google 会话时也只结束这一条，已回传的阻塞任务计入处理数，有额度就继续下一个。
 - API 鉴权失败、API 故障无法恢复或浏览器不可用时，结束本批。
-- 最后汇总：处理数量、API 已确认的各状态数量、结果地址和未完成原因；回传失败的任务单独列出。未领到任务时写明实际发送的 data_source、task_scope、category（若省略则写不限）与 include_paid。
+- 最后汇总：处理数量、API 已确认的各状态数量、结果地址和未完成原因；回传失败的任务单独列出。未领到任务时写明实际请求参数和 API 返回的 queue 诊断。批次名额未用完不计入失败。
 
 ${categoryLine}
 
@@ -350,12 +350,12 @@ POST /api/v1/backlink-tasks/start
 请求体使用主提示词中本批已选的参数。未选择外链分类时省略 category。
 
 - \`website_id\`：可选，必须是当前用户的网站；省略时由服务端在开启了自动外链的网站中轮流选择。
-- \`data_source\`：\`website\`（只领取网站已有的待执行记录）、\`plaza\`（外链广场，按需创建记录）、\`personal\`（个人外链库，按需创建记录）。plaza / personal 也会先领取来源匹配的已有待执行记录。
-- \`task_scope\`：\`recommended\`（已审核、免费或部分免费、已核验或已观察，不限分类）或 \`all_eligible\`（除已拒绝外的外链，默认排除已知付费；优先已核验的免费机会）。
+- \`data_source\`：\`website\` 优先领取该网站已有记录。排除已知付费时，网站无可领记录则从用户已启用的推荐外链中按需创建，跳过该网站已有的目标。\`plaza\`（外链广场）和 \`personal\`（个人外链库）也会先领取来源匹配的已有待处理记录，再按需创建。
+- \`task_scope\`：\`recommended\`（已审核、免费或部分免费、已核验或已观察）或 \`all_eligible\`（优先推荐任务，再找其他符合条件的记录）。当 \`data_source=website\` 且 \`include_paid=false\` 时，旧命令传 \`recommended\` 也按推荐优先的方式处理。原有网站、分类和已知付费过滤仍适用。
 - \`include_paid\`：默认 false，排除已知付费目标；只有明确需要调查付费机会时才传 true，这也不授权付款。
 - \`category\`：可选，取值 \`directory\`、\`blog_comment\`、\`forum_community\`、\`content_submission\`、\`profile\`、\`review_platform\`、\`other\`。
 
-同一 \`worker_id\` 的并发 start 只返回同一个有效租约；有未结束任务时不能切换网站，网站停用后不能恢复执行。没有有效任务时才领取新任务；没有任务时返回 \`data.task = null\`。领取后请核对：
+同一 \`worker_id\` 的并发 start 只返回同一个有效租约；有未结束任务时不能切换网站，网站停用后不能恢复执行。没有有效任务时才领取新任务。网站队列补充成功时 \`data.queue.source=personal\`。没有任务时返回 \`data.task = null\` 和 \`data.queue\`，含 \`requested_scope\`、\`effective_scope\`、\`pending\`（网站队列的待处理总数）、\`checked_personal_library\`（是否已查个人库补充）及 \`reason\`（\`no_enabled_websites\` 无启用项目、\`no_pending_website_tasks\` 网站没有待处理记录、\`no_eligible_website_tasks\` 待处理记录均不符合本次筛选、\`no_eligible_library_entries\` 外链库没有可领取记录）。领取后请核对：
 
 - \`account_policy\` 返回 \`login_email\`、\`verification_method\`、\`verification_path\`、\`google_login_email\`、\`google_login_path\`、\`login_provider\` 和 \`public_contact_email\`。\`allow_logout=false\` 表示禁止自动注销；\`requires_account_review=true\` 时先只读核实 \`previous_submission_email\` 对应的历史结果。
 

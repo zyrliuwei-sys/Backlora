@@ -4,6 +4,16 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-22 — Keep website backlink queues moving
+
+Website commands that exclude known paid targets prefer recommended pending
+entries and then other eligible entries from the same queue. Older commands
+that send `recommended` get the same behavior. Once the website queue is
+exhausted, Backlora can claim a new recommended target from the owner's enabled
+personal library for the same website and category. Existing targets are never
+recreated. The start API includes queue diagnostics when no task is available.
+No migration or replacement of existing website commands is required.
+
 ## 2026-11-22 — Simplify website project forms
 
 The product section groups the website fields, contact settings, and media.

@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -505,6 +506,14 @@ function workerIdOf(v: unknown): string {
   return id;
 }
 
+async function claimedTask(userId: string, row: WebsiteBacklink) {
+  await db()
+    .update(website)
+    .set({ lastClaimedAt: new Date() })
+    .where(eq(website.id, row.websiteId));
+  return { task: await taskView(userId, row) };
+}
+
 /**
  * POST /api/v1/backlink-tasks/start — resume this worker's unexpired task,
  * else lease a new one. Returns null when nothing is left.
@@ -520,6 +529,11 @@ export async function startTask(userId: string, body: StartBody) {
   const scope: TaskScope = oneOf(body.task_scope, TASK_SCOPES)
     ? body.task_scope
     : 'recommended';
+  // Existing website commands may still send `recommended`. The website
+  // queue already sorts those entries first, so a wider selection can continue
+  // with the same project's other eligible entries in the same query.
+  const useWebsiteFallback = dataSource === 'website' && !includePaid;
+  const claimScope = useWebsiteFallback ? 'all_eligible' : scope;
   let category: string | undefined;
   if (body.category != null && body.category !== '') {
     if (!oneOf(body.category, BACKLINK_CATEGORIES))
@@ -599,7 +613,7 @@ export async function startTask(userId: string, body: StartBody) {
         w,
         workerId,
         dataSource,
-        scope,
+        claimScope,
         category,
         includePaid
       )) ??
@@ -610,22 +624,76 @@ export async function startTask(userId: string, body: StartBody) {
             w,
             workerId,
             dataSource,
-            scope,
+            claimScope,
             category,
             includePaid
           ));
-    if (row) {
-      await db()
-        .update(website)
-        .set({ lastClaimedAt: new Date() })
-        .where(eq(website.id, w.id));
-      return { task: await taskView(userId, row) };
+    if (row) return claimedTask(userId, row);
+  }
+
+  // Fill a gap only from the user's enabled, recommended personal entries.
+  // Search assigned work across all selected sites before creating a new row.
+  if (useWebsiteFallback) {
+    for (const w of sites) {
+      const row = await claimFromLibrary(
+        userId,
+        w,
+        workerId,
+        'personal',
+        'recommended',
+        category
+      );
+      if (row) {
+        return {
+          ...(await claimedTask(userId, row)),
+          queue: { source: 'personal', effective_scope: 'recommended' },
+        };
+      }
     }
   }
   // A concurrent start may have won the claim. Return its lease rather than
   // reporting exhaustion or abandoning a second task.
   const concurrent = await activeTask(userId, workerId, websiteId);
-  return { task: concurrent ? await taskView(userId, concurrent) : null };
+  if (concurrent) return { task: await taskView(userId, concurrent) };
+
+  let pending: number | null = null;
+  if (dataSource === 'website' && sites.length > 0) {
+    const [result] = await db()
+      .select({ total: count() })
+      .from(websiteBacklink)
+      .innerJoin(website, eq(website.id, websiteBacklink.websiteId))
+      .where(
+        and(
+          eq(websiteBacklink.userId, userId),
+          eq(websiteBacklink.operationStatus, 'pending'),
+          eq(website.userId, userId),
+          eq(website.status, 'enabled'),
+          eq(website.autoBacklinkEnabled, true),
+          isNull(website.deletedAt),
+          websiteId ? eq(website.id, websiteId) : undefined
+        )
+      );
+    pending = result?.total ?? 0;
+  }
+
+  const reason =
+    sites.length === 0
+      ? 'no_enabled_websites'
+      : pending === null
+        ? 'no_eligible_library_entries'
+        : pending === 0
+          ? 'no_pending_website_tasks'
+          : 'no_eligible_website_tasks';
+  return {
+    task: null,
+    queue: {
+      reason,
+      pending,
+      requested_scope: scope,
+      effective_scope: claimScope,
+      checked_personal_library: useWebsiteFallback && sites.length > 0,
+    },
+  };
 }
 
 async function conflict(userId: string, id: string): Promise<never> {

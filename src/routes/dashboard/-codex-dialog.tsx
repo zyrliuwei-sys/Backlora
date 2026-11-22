@@ -10,7 +10,6 @@ import {
   type AutomationContainer,
   type TaskScope,
 } from '@/config/backlinks';
-import { PAVO_SUBMISSION_EMAIL } from '@/config/submission-account';
 import { apiGet, type PageResult } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Button } from '@/components/ui/button';
@@ -186,11 +185,7 @@ export function CodexDialog({
   const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
   const registrationEmail = websiteId ? site.data?.registrationEmail : null;
   const scope =
-    scopeChoice ??
-    (site.data?.registrationEmail === PAVO_SUBMISSION_EMAIL &&
-    dataSource === 'website'
-      ? 'all_eligible'
-      : 'recommended');
+    dataSource === 'website' ? 'all_eligible' : (scopeChoice ?? 'recommended');
 
   const baseUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const generated = useMemo(
@@ -360,16 +355,27 @@ export function CodexDialog({
                 }
               />
             </div>
-            <OptionSelect
-              id="codex-scope"
-              label={m['dash.codex.scope']()}
-              value={scope}
-              onChange={setScope}
-              options={TASK_SCOPES.map((s) => ({
-                value: s,
-                label: scopeLabel[s](),
-              }))}
-            />
+            {dataSource === 'website' ? (
+              <div className="space-y-2">
+                <Label htmlFor="codex-scope">{m['dash.codex.scope']()}</Label>
+                <Input
+                  id="codex-scope"
+                  value={m['dash.codex.scope_website']()}
+                  readOnly
+                />
+              </div>
+            ) : (
+              <OptionSelect
+                id="codex-scope"
+                label={m['dash.codex.scope']()}
+                value={scope}
+                onChange={setScope}
+                options={TASK_SCOPES.map((s) => ({
+                  value: s,
+                  label: scopeLabel[s](),
+                }))}
+              />
+            )}
             <OptionSelect
               id="codex-container"
               label={m['dash.codex.container']()}
@@ -395,6 +401,8 @@ export function CodexDialog({
           </div>
           {scope === 'all_eligible' && (
             <p className="text-muted-foreground text-xs">
+              {dataSource === 'website' &&
+                `${m['dash.codex.website_queue_note']()} `}
               {m['dash.codex.paid_note']()}
             </p>
           )}

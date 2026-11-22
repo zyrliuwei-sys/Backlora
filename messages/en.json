@@ -1511,6 +1511,8 @@
   "dash.codex.scope": "Task scope",
   "dash.codex.scope_recommended": "Recommended (free, checked entries)",
   "dash.codex.scope_all": "Explore eligible entries (exclude known paid)",
+  "dash.codex.scope_website": "Recommended first, excluding known paid entries",
+  "dash.codex.website_queue_note": "When the website queue runs out, use enabled recommended entries from My Backlinks.",
   "dash.codex.container": "Automation",
   "dash.codex.copy": "Copy prompt",
   "dash.codex.copied": "Prompt copied (API doc attached)",
