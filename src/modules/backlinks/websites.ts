@@ -28,7 +28,11 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
-import { directSubmissionEmailOf } from '@/config/submission-account';
+import {
+  directSubmissionEmailOf,
+  outlookSubmissionAccount,
+  usesOutlookForSupport,
+} from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
@@ -97,12 +101,13 @@ export function viewWebsite({
   registrationPassword,
   ...w
 }: Website): WebsiteView {
+  const outlook = outlookSubmissionAccount(w);
   return {
     ...w,
     registrationEmail: registrationEmailOf(w) ?? '',
     registrationEmailCapability: registrationCapabilityOf(w),
-    verificationInboxEmail: registrationEmailOf(w) ?? '',
-    emailManagementUrl: '',
+    verificationInboxEmail: outlook?.inbox ?? registrationEmailOf(w) ?? '',
+    emailManagementUrl: outlook?.mailboxUrl ?? '',
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -254,15 +259,17 @@ export type Readiness = {
 
 /** Only verified routes on explicitly configured project domains are usable. */
 export function registrationEmailOf(
-  w: Pick<Website, 'id' | 'url'>
+  w: Pick<Website, 'id' | 'url' | 'email' | 'userId'>
 ): string | null {
+  if (usesOutlookForSupport(w))
+    return outlookSubmissionAccount(w)?.email ?? null;
   return directSubmissionEmailOf(w);
 }
 
 export function registrationCapabilityOf(
-  w: Pick<Website, 'id' | 'url'>
+  w: Pick<Website, 'id' | 'url' | 'email' | 'userId'>
 ): EmailCapability {
-  return directSubmissionEmailOf(w) ? 'receive_only' : 'unknown';
+  return registrationEmailOf(w) ? 'receive_only' : 'unknown';
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -311,6 +318,7 @@ export function submissionReadiness(w: WebsiteView): Readiness {
 /** The `product` object handed to agents (snake_case, see the API doc). */
 export function productOf(w: WebsiteView) {
   const registrationEmail = registrationEmailOf(w);
+  const outlook = outlookSubmissionAccount(w);
   const metadata = Object.fromEntries(w.metadata.map((m) => [m.key, m.value]));
   return {
     id: w.id,
@@ -329,10 +337,12 @@ export function productOf(w: WebsiteView) {
     contact_email: w.email || null,
     registration_email: registrationEmail,
     google_login_email: w.googleLoginEmail,
-    verification_inbox_email: registrationEmail,
-    verification_method: registrationEmail
-      ? ('backlora' as const)
-      : ('unavailable' as const),
+    verification_inbox_email: outlook?.inbox ?? registrationEmail,
+    verification_method: outlook
+      ? ('outlook' as const)
+      : registrationEmail
+        ? ('backlora' as const)
+        : ('unavailable' as const),
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,

@@ -84,9 +84,7 @@ const {
   updateWebsite,
   createWebsite,
 } = await import('../src/modules/backlinks/websites');
-const { PAVO_SUBMISSION_EMAIL } =
-  await import('../src/config/submission-account');
-const { readVerificationMail, receiveVerificationMail, verificationOf } =
+const { readVerificationMail, routeIncomingMail, verificationOf } =
   await import('../src/modules/backlinks/verification-mail');
 const { COMPANY_FOUNDED_YEAR_KEY } = await import('../src/config/backlinks');
 after(async () => {
@@ -371,37 +369,46 @@ test('a new successful submission is reusable without a library entry', async ()
   assert.equal(next.proof, null);
 });
 
-test('verification mail is scoped to the configured project, sender, owner and active lease', async () => {
+test('project support mail is forwarded to one inbox and verification stays scoped to the project and lease', async () => {
   const id = await fixture();
   const other = await fixture();
   const grid = await fixture();
+  const pavoEmail = 'support@pavoai.net';
+  const gridEmail = 'support@gridcraft.me';
+  const inbox = 'shared-inbox@example.test';
   await db()
     .update(website)
     .set({
       url: 'https://pavoai.net/',
-      email: 'support@pavoai.net',
+      email: pavoEmail,
     })
     .where(eq(website.id, id));
   await db()
     .update(website)
-    .set({ url: 'https://pavoai.net/' })
+    .set({ url: 'https://pavoai.net/', email: pavoEmail })
     .where(eq(website.id, other));
   await db()
     .update(website)
-    .set({ url: 'https://gridcraft.me/' })
+    .set({ url: 'https://gridcraft.me/', email: gridEmail })
     .where(eq(website.id, grid));
 
   const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
   const original = runtime.__CF_ENV__;
   const key = process.env.CONFIG_ENCRYPTION_KEY;
   const stored = new Map<string, string>();
+  const forwarded: string[] = [];
+  let storageDown = false;
   process.env.CONFIG_ENCRYPTION_KEY = 'isolated-mail-test-key';
   runtime.__CF_ENV__ = {
     ...original,
     BACKLORA_SUBMISSION_DOMAINS: JSON.stringify({
       [id]: 'pavoai.net',
-      [grid]: 'gridcraft.me',
     }),
+    BACKLORA_SUPPORT_MAILBOXES: JSON.stringify({
+      [pavoEmail]: id,
+      [gridEmail]: grid,
+    }),
+    BACKLORA_SUPPORT_MAIL_FORWARD_TO: inbox,
     VERIFICATION_MAIL: {
       get: async (name: string) => stored.get(name) ?? null,
       put: async (
@@ -409,6 +416,7 @@ test('verification mail is scoped to the configured project, sender, owner and a
         value: string,
         options: { expirationTtl: number }
       ) => {
+        if (storageDown) throw new Error('KV unavailable');
         assert.equal(options.expirationTtl, 600);
         stored.set(name, value);
       },
@@ -417,8 +425,10 @@ test('verification mail is scoped to the configured project, sender, owner and a
   try {
     const { task } = await claim(id);
     assert.ok(task?.lease_id);
-    assert.equal(task.product.submission_email, PAVO_SUBMISSION_EMAIL);
-    assert.equal(task.product.contact_email, 'support@pavoai.net');
+    assert.equal(task.product.submission_email, pavoEmail);
+    assert.equal(task.product.contact_email, pavoEmail);
+    assert.equal(task.account_policy.login_email, pavoEmail);
+    assert.equal(task.product.email_capability, 'receive_only');
     assert.equal(task.account_policy.verification_method, 'backlora');
     assert.equal(task.account_policy.mailbox_url, null);
     assert.equal(
@@ -427,7 +437,7 @@ test('verification mail is scoped to the configured project, sender, owner and a
     );
     assert.equal((await claim(other)).task?.product.registration_email, null);
     const gridTask = (await claim(grid)).task!;
-    assert.equal(gridTask.product.registration_email, 'submit@gridcraft.me');
+    assert.equal(gridTask.product.registration_email, gridEmail);
     const request = {
       worker_id: `${id}-worker`,
       lease_id: task.lease_id,
@@ -436,15 +446,19 @@ test('verification mail is scoped to the configured project, sender, owner and a
     const receive = (
       host: string,
       dmarc: string,
-      to = PAVO_SUBMISSION_EMAIL as string
+      to = pavoEmail,
+      body = 'Your verification code is 321789'
     ) => {
       const raw = new Response(
-        `From: Verify <noreply@${host}>\r\nSubject: Your verification code\r\n\r\nYour verification code is 321789\r\n`
+        `From: Verify <noreply@${host}>\r\nSubject: Account message\r\n\r\n${body}\r\n`
       ).body!;
-      return receiveVerificationMail({
+      return routeIncomingMail({
         to,
         raw,
         rawSize: 150,
+        forward: async (destination) => {
+          forwarded.push(destination);
+        },
         headers: new Headers({
           'authentication-results': `mx.cloudflare.net; dmarc=${dmarc} header.from=${host}`,
         }),
@@ -452,12 +466,23 @@ test('verification mail is scoped to the configured project, sender, owner and a
     };
     await receive('directory.example.test', 'fail');
     await receive('directory.example.test.attacker.test', 'pass');
-    await receive('directory.example.test', 'pass', 'support@pavoai.net');
+    await receive(
+      'directory.example.test',
+      'pass',
+      pavoEmail,
+      'A support question'
+    );
+    await receive(
+      'directory.example.test',
+      'pass',
+      'support@unconfigured.test'
+    );
+    assert.deepEqual(forwarded, [inbox, inbox, inbox]);
     assert.deepEqual(await readVerificationMail(id, task.id, request), {
       status: 'waiting',
     });
 
-    await receive('mail.directory.example.test', 'pass', 'submit@gridcraft.me');
+    await receive('mail.directory.example.test', 'pass', gridEmail);
     assert.deepEqual(await readVerificationMail(id, task.id, request), {
       status: 'waiting',
     });
@@ -473,11 +498,17 @@ test('verification mail is scoped to the configured project, sender, owner and a
     );
 
     await receive('mail.directory.example.test', 'pass');
+    assert.deepEqual(forwarded, [inbox, inbox, inbox, inbox, inbox]);
     assert.equal(stored.size, 2);
     assert.match([...stored.values()][0], /^enc:v1:/);
     const received = await readVerificationMail(id, task.id, request);
     assert.equal(received.status, 'received');
     if (received.status === 'received') assert.equal(received.code, '321789');
+    storageDown = true;
+    await receive('directory.example.test', 'pass', gridEmail);
+    assert.equal(forwarded.length, 6);
+    assert.equal(forwarded.at(-1), inbox);
+    assert.equal(stored.size, 2);
     assert.deepEqual(
       await readVerificationMail(id, task.id, {
         ...request,
@@ -503,6 +534,63 @@ test('verification mail is scoped to the configured project, sender, owner and a
     runtime.__CF_ENV__ = original;
     if (key === undefined) delete process.env.CONFIG_ENCRYPTION_KEY;
     else process.env.CONFIG_ENCRYPTION_KEY = key;
+  }
+});
+
+test('Outlook verification uses each saved support address and is limited to the configured owner', async () => {
+  const id = await fixture();
+  const outsider = await fixture();
+  const inbox = 'verification@outlook.com';
+  await db()
+    .update(website)
+    .set({
+      email: 'support@one.example.test',
+    })
+    .where(eq(website.id, id));
+  await db()
+    .update(website)
+    .set({
+      email: 'support@other.example.test',
+    })
+    .where(eq(website.id, outsider));
+
+  const runtime = globalThis as { __CF_ENV__?: Record<string, unknown> };
+  const original = runtime.__CF_ENV__;
+  runtime.__CF_ENV__ = {
+    ...original,
+    BACKLORA_OUTLOOK_WEBSITE_OWNER_ID: id,
+    BACKLORA_OUTLOOK_INBOX: inbox,
+  };
+  try {
+    const task = (await claim(id)).task!;
+    assert.equal(task.product.submission_email, 'support@one.example.test');
+    assert.equal(task.product.email_capability, 'receive_only');
+    assert.equal(task.account_policy.login_email, 'support@one.example.test');
+    assert.equal(task.account_policy.verification_method, 'outlook');
+    assert.equal(task.account_policy.verification_inbox_email, inbox);
+    assert.equal(
+      task.account_policy.mailbox_url,
+      'https://outlook.live.com/mail/'
+    );
+    assert.equal(task.account_policy.verification_path, null);
+
+    const second = await requireWebsite(id, `${id}-other`);
+    assert.equal(productOf(second).registration_email, null);
+    const updatedSecond = await updateWebsite(id, second.id, {
+      ...second,
+      email: 'support@two.example.test',
+    });
+    assert.equal(
+      productOf(updatedSecond).registration_email,
+      'support@two.example.test'
+    );
+    assert.equal(productOf(updatedSecond).verification_inbox_email, inbox);
+
+    const other = (await claim(outsider)).task!;
+    assert.equal(other.account_policy.verification_inbox_email, null);
+    assert.equal(other.account_policy.verification_method, 'unavailable');
+  } finally {
+    runtime.__CF_ENV__ = original;
   }
 });
 
@@ -572,6 +660,8 @@ test('the per-project Google setting can be set or cleared and pins a task to th
     const bound = await getTask(id, task.id);
     assert.equal(bound.product.submission_email, email);
     assert.equal(bound.account_policy.login_provider, 'google');
+    assert.equal(bound.account_policy.verification_method, 'gmail');
+    assert.equal(bound.account_policy.verification_inbox_email, email);
     assert.equal(bound.account_policy.requires_account_review, false);
     assert.equal(bound.account_policy.verification_path, null);
     assert.equal(

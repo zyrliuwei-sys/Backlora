@@ -22,6 +22,13 @@
     "VITE_APP_NAME": "My App",
     // Self-hosted Plausible script host(s), comma-separated. Optional.
     // "PLAUSIBLE_SCRIPT_HOSTS": "stats.example.com",
+    // Project support addresses with an exact Email Routing rule to this Worker.
+    // "BACKLORA_SUPPORT_MAILBOXES": "{\"support@example.com\":\"website-id\"}",
+    // A verified Email Routing destination for the original messages.
+    // "BACKLORA_SUPPORT_MAIL_FORWARD_TO": "mailbox@example.net",
+    // Reuse the approved owner's Outlook browser session for support mail.
+    // "BACKLORA_OUTLOOK_WEBSITE_OWNER_ID": "owner-user-id",
+    // "BACKLORA_OUTLOOK_INBOX": "mailbox@outlook.com",
   },
   "d1_databases": [
     {
@@ -41,8 +48,7 @@
   // ]
   //
   // Other optional bindings — uncomment when needed:
-  // Add BACKLORA_SUBMISSION_DOMAINS to vars as a JSON string mapping website
-  // IDs to verified domains, and bind a dedicated KV namespace.
+  // Bind a dedicated KV namespace for verification mail.
   // "kv_namespaces":  [{ "binding": "VERIFICATION_MAIL", "id": "..." }],
   // "r2_buckets":     [{ "binding": "BUCKET", "bucket_name": "..." }]
 }

@@ -138,9 +138,15 @@ async function taskView(userId: string, r: WebsiteBacklink) {
         : product.registration_email
           ? 'email'
           : null,
-      verification_inbox_email: product.verification_inbox_email,
-      mailbox_url: product.email_management_url,
-      verification_method: product.verification_method,
+      verification_inbox_email: usesGoogle
+        ? googleEmail
+        : product.verification_inbox_email,
+      mailbox_url: usesGoogle
+        ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(googleEmail)}#inbox`
+        : product.email_management_url,
+      verification_method: usesGoogle
+        ? ('gmail' as const)
+        : product.verification_method,
       verification_path:
         product.verification_method === 'backlora' &&
         !identityReviewRequired &&

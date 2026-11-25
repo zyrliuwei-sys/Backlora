@@ -184,6 +184,9 @@ export function CodexDialog({
   const websiteId = siteId === AUTO ? null : siteId;
   const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
   const registrationEmail = websiteId ? site.data?.registrationEmail : null;
+  const verificationInboxEmail = websiteId
+    ? site.data?.verificationInboxEmail
+    : null;
   const scope =
     dataSource === 'website' ? 'all_eligible' : (scopeChoice ?? 'recommended');
 
@@ -196,6 +199,7 @@ export function CodexDialog({
         websiteId,
         googleLoginEmail,
         registrationEmail,
+        verificationInboxEmail,
         dataSource,
         category,
         num,
@@ -209,6 +213,7 @@ export function CodexDialog({
       websiteId,
       googleLoginEmail,
       registrationEmail,
+      verificationInboxEmail,
       dataSource,
       category,
       num,
@@ -239,6 +244,7 @@ export function CodexDialog({
       websiteId,
       googleLoginEmail,
       registrationEmail,
+      verificationInboxEmail,
     });
     try {
       await navigator.clipboard.writeText(text);

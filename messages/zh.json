@@ -1583,7 +1583,7 @@
   "dash.form.media_remove": "移除图片",
   "dash.form.media_apply": "应用链接",
   "dash.form.email": "公开联系邮箱",
-  "dash.form.email_hint": "作为产品的公开联系方式。注册和验证码使用项目的 submit@ 邮箱。",
+  "dash.form.email_hint": "用作产品的公开联系方式。已接入收信的 support@ 邮箱也用于注册、登录和接收验证码。",
   "dash.form.registration_email": "注册 / 登录邮箱",
   "dash.form.registration_email_hint": "尚未配置可用于外链注册和登录的邮箱。",
   "dash.form.registration_email_direct_hint": "用于支持邮箱注册和登录的外链站点。公开联系方式仍使用产品邮箱。",

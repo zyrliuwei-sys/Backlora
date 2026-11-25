@@ -132,7 +132,7 @@ test('a selected project includes its configured Google address in the copied id
 });
 
 test('a project uses its enterprise registration address without exposing it in the generic API doc', () => {
-  const registrationEmail = 'submit@gridcraft.example';
+  const registrationEmail = 'support@gridcraft.example';
   const account = { websiteId: options.websiteId, registrationEmail };
   const primary = buildPrimaryPrompt({ ...options, ...account });
   const copied = buildAgentInstructions({
@@ -144,6 +144,29 @@ test('a project uses its enterprise registration address without exposing it in 
   assert.ok(copied.split('\n')[1].includes(registrationEmail));
   assert.equal(copied.split(registrationEmail).length - 1, 1);
   assert.ok(!buildApiDoc(baseUrl).includes(registrationEmail));
+});
+
+test('copied Outlook instructions identify the project login and the separate Ego inbox', () => {
+  const registrationEmail = 'support@project.example';
+  const verificationInboxEmail = 'verification@outlook.com';
+  const account = {
+    websiteId: options.websiteId,
+    registrationEmail,
+    verificationInboxEmail,
+  };
+  const copied = buildAgentInstructions({
+    baseUrl,
+    primary: buildPrimaryPrompt({ ...options, ...account }),
+    custom: '',
+    ...account,
+  });
+  assert.match(
+    copied.split('\n')[1],
+    /support@project\.example.*Outlook.*verification@outlook\.com/
+  );
+  assert.equal(copied.split(verificationInboxEmail).length - 1, 1);
+  assert.match(copied, /核对原收件地址与当前项目的 login_email/);
+  assert.ok(!buildApiDoc(baseUrl).includes(verificationInboxEmail));
 });
 
 test('all runners and edited prompts retain separate login, inbox and public-contact rules', () => {

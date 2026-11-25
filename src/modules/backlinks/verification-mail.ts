@@ -5,9 +5,10 @@ import PostalMime from 'postal-mime';
 import { db } from '@/core/db';
 import { website, websiteBacklink } from '@/config/db/schema';
 import {
-  directSubmissionEmailOf,
+  canReceiveSubmissionEmail,
   mailBindings,
   submissionSiteForRecipient,
+  supportMailboxForRecipient,
 } from '@/config/submission-account';
 import { decryptSecret, encryptSecret, isEncryptedSecret } from '@/lib/crypto';
 
@@ -113,6 +114,21 @@ type EmailEvent = {
   rawSize: number;
 };
 
+export async function routeIncomingMail(
+  message: EmailEvent & { forward(to: string): Promise<unknown> }
+) {
+  const supportMailbox = supportMailboxForRecipient(message.to.toLowerCase());
+  if (!supportMailbox) return receiveVerificationMail(message);
+
+  try {
+    await receiveVerificationMail(message);
+  } catch {
+    // Keep support mail delivery independent of verification storage.
+    console.error('Backlora verification mail processing failed');
+  }
+  await message.forward(supportMailbox.forwardTo);
+}
+
 function authenticatedSender(headers: Headers, address: string) {
   const host = address.split('@').pop()?.toLowerCase();
   // Cloudflare prepends its own authentication result before any existing headers.
@@ -151,21 +167,17 @@ export async function receiveVerificationMail(message: EmailEvent) {
     return;
 
   const now = new Date();
-  const mail = await PostalMime.parse(message.raw);
-  const sender = authenticatedSender(message.headers, mail.from?.address ?? '');
-  if (!sender) return;
-
   const candidates: {
     id: string;
     leaseId: string | null;
     target: string;
-    site: { id: string; url: string };
+    site: { id: string; url: string; email: string | null };
   }[] = await db()
     .select({
       id: websiteBacklink.id,
       leaseId: websiteBacklink.leaseId,
       target: websiteBacklink.targetDomain,
-      site: { id: website.id, url: website.url },
+      site: { id: website.id, url: website.url, email: website.email },
     })
     .from(websiteBacklink)
     .innerJoin(
@@ -182,10 +194,15 @@ export async function receiveVerificationMail(message: EmailEvent) {
         eq(websiteBacklink.submissionEmail, recipient)
       )
     );
+  if (candidates.length === 0) return;
+  const mail = await PostalMime.parse(message.raw);
+  const sender = authenticatedSender(message.headers, mail.from?.address ?? '');
+  if (!sender) return;
+
   const matches = candidates.filter((task) => sameSite(sender, task.target));
   if (matches.length !== 1) return;
   const [task] = matches;
-  if (!task.leaseId || directSubmissionEmailOf(task.site, env) !== recipient)
+  if (!task.leaseId || !canReceiveSubmissionEmail(task.site, recipient, env))
     return;
 
   const verification = verificationOf(mail, task.target);
@@ -242,6 +259,7 @@ export async function readVerificationMail(
       .select({
         id: website.id,
         url: website.url,
+        email: website.email,
         submissionEmail: websiteBacklink.submissionEmail,
       })
       .from(websiteBacklink)
@@ -264,7 +282,7 @@ export async function readVerificationMail(
       .limit(1);
     return (
       !!site?.submissionEmail &&
-      directSubmissionEmailOf(site, env) === site.submissionEmail
+      canReceiveSubmissionEmail(site, site.submissionEmail, env)
     );
   }
   if (!(await ownsLease()))

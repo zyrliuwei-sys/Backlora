@@ -68,10 +68,10 @@ const embed = await page.evaluate(captureBadgeEmbed, { buttonText: 'Copy Dark Em
 /** Included in the API contract too, so edited prompts retain the identity rules. */
 export function buildSubmissionIdentityInstructions() {
   return `【注册身份与公开联系邮箱】
-以当前任务的 account_policy 为准。普通邮箱注册和登录优先使用项目专用的企业邮箱 login_email（submit@项目域名）。用 verification_path 从 Backlora 获取验证码或验证链接。公开联系邮箱使用 product.contact_email。
+以当前任务的 account_policy 为准。有普通邮箱入口时，使用 login_email 提供的项目企业邮箱注册或登录。verification_method=outlook 时，login_email 是该项目自己的 support@ 地址，verification_inbox_email 是收转发邮件的 Outlook 账号。外站注册和登录只填写 login_email。公开联系邮箱使用 product.contact_email。
 1. 优先选择无需登录或支持普通邮箱的免费入口。缺少目标站所需的可用账号时只回传当前任务 needs_user（reason=account），说明缺少哪种登录方式。如果本批还有额度，继续领取下一条。不要使用历史邮箱、公开联系邮箱或浏览器中的其他账号作为备用。
 2. 仅当目标站没有普通邮箱入口、且任务明确配置 google_login_email 时，才考虑复用 Ego 已登录的该账号。确认能复用后，在选择账号或授权前向 google_login_path 发 POST（worker_id、lease_id）绑定当前任务。未配置、没有可用会话、账号不符或要求本人验证时，保留现有会话并回传该条 needs_user/account。如果本批还有额度，继续领取下一条。不要要求用户登录 Google、交接浏览器或等待用户回复。只有外站明确要求普通邮箱密码时才使用 product.registration_password。不得读取 Cookie 或浏览器里的账号密码。
-3. 在目标站请求验证码或验证链接前记录当前 ISO 时间 requested_after。请求发出后用当前 worker_id、lease_id 和 requested_after 向本任务的 verification_path 发 POST，每约 15 秒查一次，最多等约 3 分钟。只在 status=received 时使用 code 或目标站验证链接 link。若 requires_account_review=true，先核对旧账号和提交记录。找不到匹配邮件回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
+3. 请求验证码或验证链接前记录当前 ISO 时间 requested_after。verification_method=outlook 时，在 Ego 中复用已登录且账号与 verification_inbox_email 一致的 Outlook 网页会话。按目标站发件方和请求时间搜索，在邮件中核对原收件地址与当前项目的 login_email。一条邮件明确匹配后才使用验证码，或打开经核对属于目标站官方流程的 HTTPS 验证链接。verification_method=backlora 时，用当前 worker_id、lease_id 和 requested_after 向 verification_path 发 POST，只在 status=received 时取码。两种方式每约 15 秒查一次，最多约 3 分钟。Google 登录后目标站另发验证邮件时，只在 Ego 已登录的同一 Gmail 收件箱查找。若需要人工验证、会话不可用或找不到唯一匹配邮件，回传 needs_user/email_verify。验证码和带令牌的链接不得写入日志或回传证据。
 4. product.contact_email 只用于公开联系方式；product.submission_email 是历史任务快照。submission_identity_review_required=true 时只读核对旧账号、草稿、listing 和收件证据。不能确认历史结果时回传 needs_user（reason=account）。已发布资料保留原链接和证据，不为切换邮箱重复创建。Gravatar 等共用个人资料页不得覆盖已有姓名、头像、其他产品链接或无关资料。
 5. product.email_capability 对应本任务注册邮箱，contact_email_capability 对应公开联系邮箱。只有目标站要求从特定地址发信或回复而确实无法完成时才记录 email_send。目标站和自有网站管理员后台需要分别核对登录会话。
 6. 目标站把登录邮箱强制公开、无法另填联系邮箱时，记录这个限制并回传 needs_user（reason=account）；不要擅自把私人登录邮箱填作公开的产品联系邮箱。`;
@@ -82,8 +82,8 @@ export function upgradeSubmissionIdentityPrompt(prompt: string) {
   const cleaned = prompt
     .replace(/【注册身份与公开联系邮箱】\n[^\n]*(?:\n[1-6]\. [^\n]*)*/g, '')
     .replace(
-      /^4\. (?:在目标站登录和注册只能用|目标站登录前核对当前账号邮箱|按末尾“注册身份与公开联系邮箱”规则操作)[^\n]*/gm,
-      '4. 按当前任务的 account_policy 使用项目的 submit@ 企业邮箱注册、登录及收验证码；公开联系方式使用 product.contact_email。没有可用账号时记录该条 account，继续下一条。'
+      /^4\. (?:在目标站登录和注册只能用|目标站登录前核对当前账号邮箱|按末尾“注册身份与公开联系邮箱”规则操作|按当前任务的 account_policy 使用项目的 submit@ 企业邮箱)[^\n]*/gm,
+      '4. 按当前任务的 account_policy 使用 login_email 注册、登录及收验证码；公开联系方式使用 product.contact_email。没有可用账号时记录该条 account，继续下一条。'
     )
     .trim();
   return `${buildSubmissionIdentityInstructions()}\n\n${cleaned}`;
@@ -115,14 +115,19 @@ export function upgradeSubmissionRecoveryPrompt(prompt: string) {
 type PromptWebsiteAccount = {
   websiteId: string | null;
   registrationEmail?: string | null;
+  verificationInboxEmail?: string | null;
   googleLoginEmail?: string | null;
 };
 
 function registrationInstruction({
   websiteId,
   registrationEmail,
+  verificationInboxEmail,
 }: PromptWebsiteAccount) {
   if (!websiteId || !registrationEmail) return '';
+  if (verificationInboxEmail && verificationInboxEmail !== registrationEmail) {
+    return `本网站注册和登录使用 \`${registrationEmail}\`，从 Ego 已登录的 Outlook 账号 \`${verificationInboxEmail}\` 读取匹配的验证码。`;
+  }
   return `本网站注册、登录及验证码邮箱为 \`${registrationEmail}\`，使用 Backlora 直接收件。`;
 }
 
@@ -243,6 +248,7 @@ export function buildAgentInstructions({
   websiteId = null,
   googleLoginEmail,
   registrationEmail,
+  verificationInboxEmail,
 }: {
   baseUrl: string;
   primary: string;
@@ -250,11 +256,13 @@ export function buildAgentInstructions({
   websiteId?: string | null;
   googleLoginEmail?: string | null;
   registrationEmail?: string | null;
+  verificationInboxEmail?: string | null;
 }) {
   const googleLogin = googleLoginInstruction({ websiteId, googleLoginEmail });
   const registration = registrationInstruction({
     websiteId,
     registrationEmail,
+    verificationInboxEmail,
   });
   const siteAccounts = [registration, googleLogin].filter(Boolean);
   const instructions = upgradeSubmissionRecoveryPrompt(
@@ -315,7 +323,7 @@ GET /api/websites/{website_id}
 | \`contact_email\` | 对外公开的产品联系邮箱，例如 support@...；填产品联系方式时使用 |
 | \`registration_email\`、\`email\` | 本项目注册/登录邮箱，email 是兼容字段 |
 | \`google_login_email\` | 仅用于支持 Google 登录的授权账号，未配置时为 null |
-| \`verification_method\` | backlora 为任务接口直接收件，unavailable 为尚无可用的注册和收件配置 |
+| \`verification_method\` | outlook 为 Ego 的 Outlook 网页取码，backlora 为任务接口直接收件，unavailable 为尚无可用的注册和收件配置 |
 | \`verification_inbox_email\` | 实际读取验证码的邮箱账号，可与注册邮箱不同（转发收信） |
 | \`submission_email\` | 本任务领取时锁定的注册/登录邮箱，避免网站资料修改后混用账号 |
 | \`submission_identity_review_required\` | true 表示历史身份未知或与当前注册邮箱不同；只读核实历史结果 |
@@ -357,7 +365,7 @@ POST /api/v1/backlink-tasks/start
 
 同一 \`worker_id\` 的并发 start 只返回同一个有效租约；有未结束任务时不能切换网站，网站停用后不能恢复执行。没有有效任务时才领取新任务。网站队列补充成功时 \`data.queue.source=personal\`。没有任务时返回 \`data.task = null\` 和 \`data.queue\`，含 \`requested_scope\`、\`effective_scope\`、\`pending\`（网站队列的待处理总数）、\`checked_personal_library\`（是否已查个人库补充）及 \`reason\`（\`no_enabled_websites\` 无启用项目、\`no_pending_website_tasks\` 网站没有待处理记录、\`no_eligible_website_tasks\` 待处理记录均不符合本次筛选、\`no_eligible_library_entries\` 外链库没有可领取记录）。领取后请核对：
 
-- \`account_policy\` 返回 \`login_email\`、\`verification_method\`、\`verification_path\`、\`google_login_email\`、\`google_login_path\`、\`login_provider\` 和 \`public_contact_email\`。\`allow_logout=false\` 表示禁止自动注销；\`requires_account_review=true\` 时先只读核实 \`previous_submission_email\` 对应的历史结果。
+- \`account_policy\` 返回 \`login_email\`、\`verification_method\`、\`verification_path\`、\`verification_inbox_email\`、\`mailbox_url\`、\`google_login_email\`、\`google_login_path\`、\`login_provider\` 和 \`public_contact_email\`。\`allow_logout=false\` 表示禁止自动注销；\`requires_account_review=true\` 时先只读核实 \`previous_submission_email\` 对应的历史结果。任务绑定 Google 后，\`verification_method=gmail\`。
 
 - \`product.id\` 与传入的 \`website_id\` 一致；
 - \`product.auto_backlink_enabled\` 为 true，否则停止该网站的任务；

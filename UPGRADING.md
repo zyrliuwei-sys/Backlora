@@ -734,3 +734,36 @@ not configured the map. Copy fresh prompts before resuming older jobs.
 
 The website editor no longer shows the Agent submission note field. Existing
 notes remain stored and available through the Agent API.
+
+## Project support mailboxes
+
+An existing project support address can now serve as both the public contact
+and the receive-only login address. Set `BACKLORA_SUPPORT_MAILBOXES` to a JSON
+object mapping each exact support address to its website ID, for example
+`{"support@example.com":"website-id"}`. Use the same address in the website's
+public contact field. Set `BACKLORA_SUPPORT_MAIL_FORWARD_TO` to the shared,
+verified Cloudflare Email Routing destination. Keep the `VERIFICATION_MAIL`
+KV binding and `CONFIG_ENCRYPTION_KEY`.
+
+Deploy the Worker with these settings before changing the existing exact
+Email Routing rule for each connected address to **Send to a Worker**.
+Backlora forwards each original message to the shared destination and stores
+only a matching task's encrypted verification code or link. Verify ordinary
+mail delivery to the shared destination and test code retrieval with a fresh
+task before enabling more projects.
+To roll back, first restore the exact rule to the original verified inbox,
+then remove that address from the mapping.
+
+The new address takes precedence over legacy mail routes configured for the
+same project. Existing task identity snapshots follow the usual account review
+flow. No database migration is required.
+
+To use the existing Outlook forwarding rules, set
+`BACKLORA_OUTLOOK_WEBSITE_OWNER_ID` to the Backlora user ID that owns the
+projects and `BACKLORA_OUTLOOK_INBOX` to the approved Outlook.com inbox.
+For that owner, a project's saved `support@` contact becomes its receive-only
+login. Its tasks return `verification_method: outlook`, the Outlook inbox
+identity and the mailbox URL. The runner uses the existing signed-in Ego
+session. Other owners keep their configured verification method. Projects
+without a saved support address have no email login in Outlook mode.
+Existing direct Cloudflare forwards to Outlook can stay in place.
