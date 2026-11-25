@@ -175,6 +175,7 @@ function NewWebsitePage() {
         <Card>
           <CardContent>
             <AddBacklinksPanel
+              defaultTab="successful"
               target={{
                 websiteId: siteId,
                 websiteName: form.name,

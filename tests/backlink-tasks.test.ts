@@ -56,8 +56,14 @@ const {
 } = await import('../src/config/db/schema');
 const { startTask, reportResult, heartbeat, getTask, bindTaskGoogleLogin } =
   await import('../src/modules/backlinks/tasks');
-const { addToWebsite, importRecords, retryRecords, createRecord, listRecords } =
-  await import('../src/modules/backlinks/records');
+const {
+  addToWebsite,
+  importRecords,
+  retryRecords,
+  createRecord,
+  listRecords,
+  listSuccessfulTargets,
+} = await import('../src/modules/backlinks/records');
 const {
   addToMine,
   batchRemoveMine,
@@ -225,6 +231,144 @@ test('successful history includes submitted and public records even after remova
     (await listRecords(id, { ...filter, websiteId: other })).total,
     0
   );
+});
+
+test('successful targets use original entry URLs and create fresh destination tasks', async () => {
+  const owner = await fixture();
+  const other = await fixture();
+  const destination = `${owner}-other`;
+  const known = `https://directory.example.test/${owner}`;
+  const confirmed = `https://directory.example.test/${owner}/listing`;
+  const submitted = `https://directory.example.test/${owner}/receipt`;
+  const existing = `https://directory.example.test/${owner}/existing`;
+  const paid = `https://directory.example.test/${owner}/paid`;
+  await db()
+    .insert(website)
+    .values({
+      id: `${owner}-history`,
+      userId: owner,
+      name: 'Another project',
+      url: `https://history-${owner}.example.test`,
+    });
+  await record(owner, 'visible-success', 'live', {
+    targetUrl: known,
+    resultUrl: confirmed,
+    updatedAt: new Date('2026-11-24T12:00:00Z'),
+  });
+  await record(owner, 'same-url', 'submitted', {
+    websiteId: `${owner}-history`,
+    targetUrl: known,
+    updatedAt: new Date('2026-11-24T13:00:00Z'),
+  });
+  await record(owner, 'manual-success', 'submitted', {
+    backlinkId: null,
+    targetUrl: submitted,
+    updatedAt: new Date('2026-11-24T14:00:00Z'),
+  });
+  await record(owner, 'was-paid', 'live', { targetUrl: paid });
+  await record(owner, 'paid-evidence', 'needs_user', {
+    targetUrl: paid,
+    websiteId: `${owner}-history`,
+    failureReason: 'paid',
+  });
+  await record(owner, 'existing-success', 'live', { targetUrl: existing });
+  await record(owner, 'already-in-destination', 'pending', {
+    targetUrl: existing,
+    websiteId: destination,
+  });
+  await record(other, 'private-success', 'live');
+  await removeMine(owner, owner);
+
+  const page = { page: 1, pageSize: 10 };
+  const library = await listSuccessfulTargets(owner, undefined, page);
+  assert.equal(library.total, 3);
+  assert.ok(library.list.some((row) => row.url === existing));
+  assert.deepEqual(
+    library.list.filter((row) => row.url !== existing),
+    [
+      { url: submitted, status: 'submitted' },
+      { url: known, status: 'live' },
+    ]
+  );
+  assert.deepEqual(
+    await listSuccessfulTargets(owner, undefined, {
+      ...page,
+      search: 'receipt',
+    }),
+    { list: [{ url: submitted, status: 'submitted' }], total: 1 }
+  );
+  assert.deepEqual(await listSuccessfulTargets(owner, destination, page), {
+    list: [
+      { url: known, status: 'live' },
+      { url: submitted, status: 'submitted' },
+    ],
+    total: 2,
+  });
+  await assert.rejects(
+    listSuccessfulTargets(other, destination, page),
+    /Website not found/
+  );
+  const additions = await Promise.all([
+    addToWebsite(owner, destination, {
+      successfulTargets: [known, paid, confirmed, existing],
+    }),
+    addToWebsite(owner, destination, { successfulTargets: [known] }),
+  ]);
+  assert.equal(
+    additions.reduce((total, item) => total + item.added, 0),
+    1
+  );
+  assert.deepEqual(
+    await addToWebsite(owner, destination, { successfulTargets: 'all' }),
+    { added: 1, skipped: 0 }
+  );
+  assert.deepEqual(await listSuccessfulTargets(owner, destination, page), {
+    list: [],
+    total: 0,
+  });
+  const tasks = await listRecords(owner, { ...page, websiteId: destination });
+  assert.equal(tasks.total, 3);
+  const copy = tasks.list.find((row) => row.targetUrl === known);
+  assert.equal(copy?.backlinkId, owner);
+  assert.equal(copy?.operationStatus, 'pending');
+  assert.equal(copy?.resultUrl, null);
+  assert.equal(copy?.proof, null);
+});
+
+test('a new successful submission is reusable without a library entry', async () => {
+  const owner = await fixture();
+  const destination = `${owner}-other`;
+  const url = `https://directory.example.test/${owner}/new-success`;
+  const page = { page: 1, pageSize: 10 };
+  await record(owner, 'new-success', 'pending', { backlinkId: null });
+  assert.equal((await listSuccessfulTargets(owner, undefined, page)).total, 0);
+
+  const queue = { data_source: 'website' };
+  const source = (await claim(owner, queue)).task!;
+  await reportResult(owner, source.id, {
+    worker_id: `${owner}-worker`,
+    lease_id: source.lease_id,
+    status: 'submitted',
+    proof: 'Received by the directory',
+  });
+  assert.deepEqual(await listSuccessfulTargets(owner, undefined, page), {
+    list: [{ url, status: 'submitted' }],
+    total: 1,
+  });
+
+  assert.deepEqual(
+    await addToWebsite(owner, destination, { successfulTargets: 'all' }),
+    {
+      added: 1,
+      skipped: 0,
+    }
+  );
+  const next = (await claim(owner, { ...queue, website_id: destination }))
+    .task!;
+  assert.equal(next.opportunity.submission_url, url);
+  assert.equal(next.website_id, destination);
+  assert.equal(next.attempt_count, 1);
+  assert.equal(next.proof, null);
 });
 
 test('verification mail is scoped to the configured project, sender, owner and active lease', async () => {

@@ -4,6 +4,16 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-25 — Reuse successful backlink targets on another website
+
+My Library shows a right-hand list of unique successful submission URLs and
+their count, refreshed from the owner's history. The Add Backlinks picker
+opens on these URLs when setting up a new website. It uses the original
+submission URL, sorts public successes first, and excludes targets already
+tracked by the destination. Both views exclude known paid, disabled and
+rejected targets. Adding a target creates a pending task for the destination.
+No migration is required.
+
 ## 2026-11-25 — Manage backlink batches and view successful submissions
 
 My Library can remove selected URLs or every URL in a named or unbatched

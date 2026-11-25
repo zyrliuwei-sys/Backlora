@@ -8,10 +8,13 @@ import {
   isNotNull,
   isNull,
   like,
+  notExists,
+  notInArray,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import { db } from '@/core/db';
 import {
@@ -29,6 +32,7 @@ import {
 } from '@/config/backlinks';
 import {
   backlink,
+  userBacklink,
   website,
   websiteBacklink,
   type WebsiteBacklink,
@@ -49,6 +53,7 @@ import {
   BacklinkError,
   chunk,
   IN_CHUNK,
+  isHttpUrl,
   str,
   strOrNull,
   writeBatched,
@@ -161,6 +166,190 @@ export async function getRecord(userId: string, id: string) {
   return row ?? null;
 }
 
+type TargetEntry = { id: string | null; link: string };
+
+function successfulTargetQuery(
+  userId: string,
+  websiteId?: string,
+  search?: string,
+  urls?: string[]
+) {
+  const destination = alias(websiteBacklink, 'already_assigned_target');
+  const paid = alias(websiteBacklink, 'known_paid_target');
+  const catalog = alias(backlink, 'successful_target_catalog');
+  const hasLive = sql<number>`max(case when ${websiteBacklink.operationStatus} = 'live' then 1 else 0 end)`;
+  const query = db()
+    .select({
+      link: websiteBacklink.targetUrl,
+      id: sql<string | null>`max(${catalog.id})`,
+      hasLive: hasLive.as('has_live'),
+      lastSuccess: sql<number>`max(${websiteBacklink.updatedAt})`.as(
+        'last_success'
+      ),
+    })
+    .from(websiteBacklink)
+    .leftJoin(
+      catalog,
+      and(
+        eq(catalog.id, websiteBacklink.backlinkId),
+        eq(catalog.link, websiteBacklink.targetUrl),
+        or(eq(catalog.visibility, 'public'), eq(catalog.ownerUserId, userId))
+      )
+    )
+    .where(
+      and(
+        ...conditions(userId, { successfulOnly: true }),
+        websiteId
+          ? notExists(
+              db()
+                .select({ id: destination.id })
+                .from(destination)
+                .where(
+                  and(
+                    eq(destination.websiteId, websiteId),
+                    eq(destination.targetUrl, websiteBacklink.targetUrl)
+                  )
+                )
+            )
+          : undefined,
+        notInArray(
+          websiteBacklink.targetUrl,
+          db()
+            .select({ link: paid.targetUrl })
+            .from(paid)
+            .where(and(eq(paid.userId, userId), eq(paid.failureReason, 'paid')))
+        ),
+        notExists(
+          db()
+            .select({ id: backlink.id })
+            .from(backlink)
+            .leftJoin(
+              userBacklink,
+              and(
+                eq(userBacklink.backlinkId, backlink.id),
+                eq(userBacklink.userId, userId)
+              )
+            )
+            .where(
+              and(
+                eq(backlink.link, websiteBacklink.targetUrl),
+                or(
+                  eq(backlink.visibility, 'public'),
+                  eq(backlink.ownerUserId, userId)
+                ),
+                or(
+                  eq(backlink.costType, 'paid'),
+                  eq(backlink.status, 'rejected'),
+                  eq(userBacklink.enabled, false)
+                )
+              )
+            )
+        ),
+        search ? like(websiteBacklink.targetUrl, `%${search}%`) : undefined,
+        urls
+          ? sql`${websiteBacklink.targetUrl} in (select value from json_each(${JSON.stringify(urls)}))`
+          : undefined
+      )
+    )
+    .groupBy(websiteBacklink.targetUrl);
+  return query;
+}
+
+export async function listSuccessfulTargets(
+  userId: string,
+  websiteId: string | undefined,
+  f: { page: number; pageSize: number; search?: string }
+) {
+  if (websiteId) await requireWebsite(userId, websiteId);
+  const matches = successfulTargetQuery(userId, websiteId, f.search).as(
+    'successful_targets'
+  );
+  const [rows, [result]]: [
+    { url: string; hasLive: number }[],
+    { total: number }[],
+  ] = await Promise.all([
+    db()
+      .select({ url: matches.link, hasLive: matches.hasLive })
+      .from(matches)
+      .orderBy(
+        ...(websiteId ? [desc(matches.hasLive)] : []),
+        desc(matches.lastSuccess),
+        matches.link
+      )
+      .limit(f.pageSize)
+      .offset((f.page - 1) * f.pageSize),
+    db().select({ total: count() }).from(matches),
+  ]);
+  return {
+    list: rows.map(({ url, hasLive }) => ({
+      url,
+      status: hasLive ? ('live' as const) : ('submitted' as const),
+    })),
+    total: result.total,
+  };
+}
+
+async function createPendingRecords(
+  userId: string,
+  w: Pick<typeof website.$inferSelect, 'id' | 'url'>,
+  entries: TargetEntry[]
+) {
+  const sourceDomain = domainOf(w.url);
+  const records = entries.map((entry) => ({
+    id: getUuid(),
+    userId,
+    websiteId: w.id,
+    backlinkId: entry.id,
+    sourceDomain,
+    sourceUrl: w.url,
+    targetDomain: domainOf(entry.link),
+    targetUrl: entry.link,
+    operationStatus: 'pending',
+  }));
+  // Bound column defaults also count toward D1's 100 parameters.
+  await writeBatched(chunk(records, 7), (q, part) =>
+    q.insert(websiteBacklink).values(part).onConflictDoNothing()
+  );
+  return records.map(({ id }) => id);
+}
+
+async function addSuccessfulTargets(
+  userId: string,
+  w: Pick<typeof website.$inferSelect, 'id' | 'url'>,
+  selection: string[] | 'all'
+) {
+  const urls = selection === 'all' ? undefined : [...new Set(selection)];
+  if (urls && urls.length === 0)
+    throw new BacklinkError('Select at least one successful target');
+  const rows: TargetEntry[] = await successfulTargetQuery(
+    userId,
+    w.id,
+    undefined,
+    urls
+  ).limit(MAX_ADD_BATCH + 1);
+  if (rows.length > MAX_ADD_BATCH)
+    throw new BacklinkError(
+      `Select at most ${MAX_ADD_BATCH} successful targets`
+    );
+
+  const ids = await createPendingRecords(
+    userId,
+    w,
+    rows.filter(({ link }) => isHttpUrl(link))
+  );
+  if (!ids.length) return { added: 0, skipped: urls?.length ?? rows.length };
+  const [{ total: added }] = await db()
+    .select({ total: count() })
+    .from(websiteBacklink)
+    .where(
+      and(
+        eq(websiteBacklink.websiteId, w.id),
+        sql`${websiteBacklink.id} in (select value from json_each(${JSON.stringify(ids)}))`
+      )
+    );
+  return { added, skipped: (urls?.length ?? rows.length) - added };
+}
+
 /**
  * Create pending records for library entries; entries the website already
  * has a record for (same target URL) are skipped.
@@ -221,27 +410,7 @@ async function addRecordsForBacklinks(
     seen.add(e.link);
     return true;
   });
-  const sourceDomain = domainOf(w.url);
-  // 13 bound params per row (column defaults are bound too) → 7 rows keeps
-  // under D1's 100.
-  await writeBatched(chunk(fresh, 7), (q, part) =>
-    q
-      .insert(websiteBacklink)
-      .values(
-        part.map((e) => ({
-          id: getUuid(),
-          userId,
-          websiteId,
-          backlinkId: e.id,
-          sourceDomain,
-          sourceUrl: w.url,
-          targetDomain: domainOf(e.link),
-          targetUrl: e.link,
-          operationStatus: 'pending',
-        }))
-      )
-      .onConflictDoNothing()
-  );
+  await createPendingRecords(userId, w, fresh);
   return { added: fresh.length, skipped: ids.length - fresh.length };
 }
 
@@ -254,11 +423,14 @@ export async function addToWebsite(
     set?: SetSpec;
     ids?: string[];
     batchIds?: string[];
+    successfulTargets?: string[] | 'all';
     urls?: string[];
     batchName?: unknown;
   }
 ) {
   const w = await requireWebsite(userId, websiteId);
+  if (body.successfulTargets)
+    return addSuccessfulTargets(userId, w, body.successfulTargets);
   if (body.batchIds) {
     const ids = await resolveImportBatches(userId, body.batchIds);
     return addRecordsForBacklinks(userId, w, ids);

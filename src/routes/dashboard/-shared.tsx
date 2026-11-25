@@ -147,6 +147,11 @@ export type Paged<T> = {
   pagination: { page: number; pageSize: number; total: number };
 };
 
+export type SuccessfulTarget = {
+  url: string;
+  status: 'live' | 'submitted';
+};
+
 export interface Facets {
   total: number;
   recommended: number;
