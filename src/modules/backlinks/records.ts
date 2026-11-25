@@ -61,6 +61,7 @@ export type RecordFilter = {
   progressStatus?: string;
   linkStatus?: string;
   failureReason?: string;
+  successfulOnly?: boolean;
   search?: string;
   sourceDomain?: string;
   targetDomain?: string;
@@ -78,6 +79,8 @@ function conditions(
 ) {
   const c: SQL[] = [eq(websiteBacklink.userId, userId), websiteNotDeleted];
   if (f.websiteId) c.push(eq(websiteBacklink.websiteId, f.websiteId));
+  if (f.successfulOnly)
+    c.push(inArray(websiteBacklink.operationStatus, ['submitted', 'live']));
   if (oneOf(f.operationStatus, OPERATION_STATUSES))
     c.push(eq(websiteBacklink.operationStatus, f.operationStatus));
   else if (oneOf(f.progressStatus, PROGRESS_STATUSES))

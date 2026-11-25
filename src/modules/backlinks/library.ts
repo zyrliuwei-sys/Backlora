@@ -755,6 +755,29 @@ export async function removeMine(userId: string, backlinkId: string) {
     );
 }
 
+/** Delete memberships in one group, leaving catalog and submission history intact. */
+export async function batchRemoveMine(
+  userId: string,
+  batchId: string,
+  backlinkIds?: string[]
+) {
+  if (!batchId || (backlinkIds && backlinkIds.length === 0))
+    throw new BacklinkError('Select a batch and at least one backlink');
+
+  const group =
+    batchId === 'unbatched'
+      ? isNull(userBacklink.batchId)
+      : eq(userBacklink.batchId, batchId);
+  const selected = backlinkIds
+    ? sql`${userBacklink.backlinkId} in (select value from json_each(${JSON.stringify(backlinkIds)}))`
+    : undefined;
+  const removed = await db()
+    .delete(userBacklink)
+    .where(and(eq(userBacklink.userId, userId), group, selected))
+    .returning({ id: userBacklink.id });
+  return { deleted: removed.length };
+}
+
 export async function clearMine(userId: string) {
   await atomic((q) => [
     q.delete(userBacklink).where(eq(userBacklink.userId, userId)),

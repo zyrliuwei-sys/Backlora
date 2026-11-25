@@ -4,6 +4,13 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-25 — Manage backlink batches and view successful submissions
+
+My Library can remove selected URLs or every URL in a named or unbatched
+group. Removal only deletes the library memberships. Website tasks and
+submission histories remain available. The Successful submissions tab shows
+existing and future submitted and public website records. No migration is required.
+
 ## 2026-11-22 — Keep website backlink queues moving
 
 Website commands that exclude known paid targets prefer recommended pending

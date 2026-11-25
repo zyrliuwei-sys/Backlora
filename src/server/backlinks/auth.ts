@@ -133,6 +133,7 @@ export function recordFilters(sp: URLSearchParams) {
     progressStatus: text('progressStatus'),
     linkStatus: text('linkStatus'),
     failureReason: text('failureReason'),
+    successfulOnly: sp.get('successfulOnly') === '1',
     // Submify sends `keyword`; `search` stays accepted.
     search: text('keyword') ?? text('search'),
     sourceDomain: text('sourceDomain'),

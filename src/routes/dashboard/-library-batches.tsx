@@ -3,11 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { apiDelete, apiGet } from '@/lib/api-client';
+import { apiGet, apiPost } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { useConfirm } from '@/hooks/use-confirm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 
 import {
@@ -20,31 +21,54 @@ import {
 } from './-shared';
 
 type Batch = { id: string; name: string; count: number };
+type Deletion = { mode: 'selected'; ids: string[] } | { mode: 'batch' };
 
-function LibraryLinks({ batchId }: { batchId: string }) {
+function LibraryLinks({
+  batch,
+  onCleared,
+}: {
+  batch: Batch;
+  onCleared: () => void;
+}) {
   const queryClient = useQueryClient();
   const { confirm, dialog } = useConfirm();
   const [page, setPage] = useState(1);
   const [input, setInput] = useState('');
+  const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const search = useDebounced(input.trim());
   const pageSize = 10;
   const links = useQuery({
-    queryKey: ['my-backlinks', 'batch-links', batchId, search, page],
+    queryKey: ['my-backlinks', 'batch-links', batch.id, search, page],
     queryFn: () =>
       apiGet<Paged<MyBacklink>>(
-        `/api/my-backlinks?${qs({ batch: batchId, search, page, pageSize })}`
+        `/api/my-backlinks?${qs({ batch: batch.id, search, page, pageSize })}`
       ),
   });
   const rows = links.data?.list ?? [];
   const total = links.data?.pagination.total ?? 0;
+  const selected = rows.filter((link) => selection.has(link.id));
+  const allChecked = rows.length > 0 && selected.length === rows.length;
   const remove = useMutation({
-    mutationFn: (id: string) =>
-      apiDelete(`/api/my-backlinks/${encodeURIComponent(id)}`),
-    onSuccess: () => {
-      if (rows.length === 1 && page > 1) setPage(page - 1);
-      for (const key of ['my-backlinks', 'backlink-facets', 'favorites'])
+    mutationFn: (deletion: Deletion) =>
+      apiPost<{ deleted: number }>('/api/my-backlinks/batch-delete', {
+        batchId: batch.id,
+        ...deletion,
+      }),
+    onSuccess: ({ deleted }, deletion) => {
+      setSelection(new Set());
+      if (deletion.mode === 'batch') {
+        onCleared();
+      } else if (deleted >= rows.length && page > 1) {
+        setPage(page - 1);
+      }
+      for (const key of [
+        'my-backlinks',
+        'backlink-facets',
+        'favorites',
+        'dashboard-stats',
+      ])
         queryClient.invalidateQueries({ queryKey: [key] });
-      toast.success(m['dash.common.deleted']());
+      toast.success(m['dash.my.removed_count']({ count: deleted }));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -56,10 +80,74 @@ function LibraryLinks({ batchId }: { batchId: string }) {
         onChange={(event) => {
           setInput(event.target.value);
           setPage(1);
+          setSelection(new Set());
         }}
         aria-label={m['dash.my.search_placeholder']()}
         placeholder={m['dash.my.search_placeholder']()}
       />
+      <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+        <label className="text-muted-foreground me-auto flex items-center gap-2 text-xs">
+          <Checkbox
+            checked={allChecked}
+            indeterminate={selected.length > 0 && !allChecked}
+            disabled={
+              remove.isPending || rows.length === 0 || input.trim() !== search
+            }
+            onCheckedChange={(checked) =>
+              setSelection(
+                checked ? new Set(rows.map((link) => link.id)) : new Set()
+              )
+            }
+          />
+          {m['dash.my.select_page']()}
+        </label>
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          disabled={!selected.length || remove.isPending}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: m['dash.my.remove_selected_title'](),
+                description: m['dash.my.remove_selected_desc']({
+                  count: selected.length,
+                }),
+                destructive: true,
+              })
+            )
+              remove.mutate({
+                mode: 'selected',
+                ids: selected.map((link) => link.id),
+              });
+          }}
+        >
+          <Trash2 />
+          {selected.length
+            ? m['dash.my.remove_selected_count']({ count: selected.length })
+            : m['dash.my.remove_selected']()}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!batch.count || remove.isPending}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: m['dash.my.remove_batch_title'](),
+                description: m['dash.my.remove_batch_desc']({
+                  name: batch.name,
+                }),
+                destructive: true,
+              })
+            )
+              remove.mutate({ mode: 'batch' });
+          }}
+        >
+          {m['dash.my.remove_batch']()}
+        </Button>
+      </div>
       {links.isError ? (
         <p role="alert" className="text-destructive text-sm">
           {m['dash.add.load_error']()}
@@ -79,7 +167,23 @@ function LibraryLinks({ batchId }: { batchId: string }) {
               key={link.id}
               className="flex items-center justify-between gap-3 py-2"
             >
-              <ExternalLink className="min-w-0 text-sm" href={link.link} />
+              <Checkbox
+                aria-label={m['dash.my.select_link']({ url: link.link })}
+                checked={selection.has(link.id)}
+                disabled={remove.isPending || input.trim() !== search}
+                onCheckedChange={(checked) =>
+                  setSelection((current) => {
+                    const next = new Set(current);
+                    if (checked) next.add(link.id);
+                    else next.delete(link.id);
+                    return next;
+                  })
+                }
+              />
+              <ExternalLink
+                className="min-w-0 flex-1 text-sm"
+                href={link.link}
+              />
               <Button
                 type="button"
                 size="icon-sm"
@@ -97,7 +201,7 @@ function LibraryLinks({ batchId }: { batchId: string }) {
                       destructive: true,
                     })
                   )
-                    remove.mutate(link.id);
+                    remove.mutate({ mode: 'selected', ids: [link.id] });
                 }}
               >
                 <Trash2 className="size-4" />
@@ -107,7 +211,15 @@ function LibraryLinks({ batchId }: { batchId: string }) {
         </ul>
       )}
       {total > pageSize && (
-        <Pager page={page} pageSize={pageSize} total={total} onPage={setPage} />
+        <Pager
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPage={(next) => {
+            setPage(next);
+            setSelection(new Set());
+          }}
+        />
       )}
       {dialog}
     </div>
@@ -156,7 +268,8 @@ export function LibraryBatches() {
           </p>
         ) : (
           <ul className="divide-y overflow-hidden rounded-lg border">
-            {groups.map(({ id, name, count }) => {
+            {groups.map((batch) => {
+              const { id, name, count } = batch;
               const open = expanded === id;
               return (
                 <li key={id}>
@@ -178,7 +291,16 @@ export function LibraryBatches() {
                       {m['dash.my.batch_url_count']({ count })}
                     </span>
                   </button>
-                  {open && <LibraryLinks batchId={id} />}
+                  {open && (
+                    <LibraryLinks
+                      batch={batch}
+                      onCleared={() =>
+                        setExpanded((current) =>
+                          current === id ? null : current
+                        )
+                      }
+                    />
+                  )}
                 </li>
               );
             })}

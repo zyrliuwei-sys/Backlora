@@ -56,10 +56,11 @@ const {
 } = await import('../src/config/db/schema');
 const { startTask, reportResult, heartbeat, getTask, bindTaskGoogleLogin } =
   await import('../src/modules/backlinks/tasks');
-const { addToWebsite, importRecords, retryRecords, createRecord } =
+const { addToWebsite, importRecords, retryRecords, createRecord, listRecords } =
   await import('../src/modules/backlinks/records');
 const {
   addToMine,
+  batchRemoveMine,
   applyFailureReason,
   createOwn,
   createPublicBacklink,
@@ -155,6 +156,76 @@ const claim = (id: string, extra = {}) =>
     task_scope: 'all_eligible',
     ...extra,
   });
+
+test('bulk library removal stays inside the current account and group', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  await importToMine(id, {
+    batchName: 'Saved targets',
+    urls: ['https://batch.example.test/a', 'https://batch.example.test/b'],
+  });
+  await importToMine(other, {
+    batchName: 'Other owner',
+    urls: ['https://batch.example.test/a'],
+  });
+  const [batch] = (await listImportBatches(id, 1, 10)).list;
+  const [foreign] = (await listImportBatches(other, 1, 10)).list;
+  const links = await listMine(id, { batch: batch.id, page: 1, pageSize: 10 });
+  const selected = links.list[0];
+  await addToWebsite(id, id, { ids: [selected.id] });
+
+  assert.deepEqual(await batchRemoveMine(id, foreign.id), { deleted: 0 });
+  await assert.rejects(batchRemoveMine(id, batch.id, []), /Select/);
+  const attempts = await Promise.all([
+    batchRemoveMine(id, batch.id, [selected.id, id, other]),
+    batchRemoveMine(id, batch.id, [selected.id]),
+  ]);
+  assert.equal(
+    attempts.reduce((sum, result) => sum + result.deleted, 0),
+    1
+  );
+  assert.equal((await listImportBatches(id, 1, 10)).unbatched, 1);
+  assert.deepEqual(await batchRemoveMine(id, batch.id), { deleted: 1 });
+  assert.deepEqual(await batchRemoveMine(id, 'unbatched'), { deleted: 1 });
+  assert.equal((await listMine(id, { page: 1, pageSize: 10 })).total, 0);
+  assert.equal((await listImportBatches(other, 1, 10)).list[0].count, 1);
+  assert.equal((await listImportBatches(other, 1, 10)).unbatched, 1);
+  const history = await listRecords(id, {
+    websiteId: id,
+    page: 1,
+    pageSize: 10,
+  });
+  assert.equal(history.list[0].targetUrl, selected.link);
+  assert.equal(history.list[0].backlinkId, selected.id);
+});
+
+test('successful history includes submitted and public records even after removal from the library', async () => {
+  const id = await fixture();
+  const other = await fixture();
+  await record(id, 'receipt', 'submitted');
+  await record(id, 'public', 'live');
+  await record(id, 'duplicate', 'duplicate');
+  await record(id, 'blocked', 'blocked');
+  await record(id, 'deleted', 'live', { websiteId: `${id}-other` });
+  await db()
+    .update(website)
+    .set({ deletedAt: new Date() })
+    .where(eq(website.id, `${id}-other`));
+  await record(other, 'other', 'live');
+  await batchRemoveMine(id, 'unbatched');
+
+  const filter = { successfulOnly: true, page: 1, pageSize: 10 };
+  const results = await listRecords(id, filter);
+  assert.equal(results.total, 2);
+  assert.deepEqual(
+    new Set(results.list.map((row) => row.id)),
+    new Set([`${id}-receipt`, `${id}-public`])
+  );
+  assert.equal(
+    (await listRecords(id, { ...filter, websiteId: other })).total,
+    0
+  );
+});
 
 test('verification mail is scoped to the configured project, sender, owner and active lease', async () => {
   const id = await fixture();
