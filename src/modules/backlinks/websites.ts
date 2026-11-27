@@ -20,7 +20,6 @@ import {
   normalizeUrl,
   oneOf,
   PRICE_MODELS,
-  type EmailCapability,
 } from '@/config/backlinks';
 import {
   website,
@@ -28,11 +27,6 @@ import {
   type NewWebsite,
   type Website,
 } from '@/config/db/schema';
-import {
-  directSubmissionEmailOf,
-  outlookSubmissionAccount,
-  usesOutlookForSupport,
-} from '@/config/submission-account';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { getUuid } from '@/lib/hash';
 
@@ -101,13 +95,15 @@ export function viewWebsite({
   registrationPassword,
   ...w
 }: Website): WebsiteView {
-  const outlook = outlookSubmissionAccount(w);
+  const loginEmail = registrationEmailOf(w);
   return {
     ...w,
-    registrationEmail: registrationEmailOf(w) ?? '',
-    registrationEmailCapability: registrationCapabilityOf(w),
-    verificationInboxEmail: outlook?.inbox ?? registrationEmailOf(w) ?? '',
-    emailManagementUrl: outlook?.mailboxUrl ?? '',
+    registrationEmail: loginEmail ?? '',
+    registrationEmailCapability: loginEmail ? 'receive_only' : 'unknown',
+    verificationInboxEmail: loginEmail ?? '',
+    emailManagementUrl: loginEmail
+      ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(loginEmail)}#inbox`
+      : '',
     hasRegistrationPassword: !!registrationPassword,
     screenshotUrls: parseJson<string[]>(w.screenshotUrls, []),
     categories: parseJson<string[]>(w.categories, []),
@@ -257,19 +253,11 @@ export type Readiness = {
   invalid_fields: string[];
 };
 
-/** Only verified routes on explicitly configured project domains are usable. */
 export function registrationEmailOf(
-  w: Pick<Website, 'id' | 'url' | 'email' | 'userId'>
+  w: Pick<Website, 'googleLoginEmail'>
 ): string | null {
-  if (usesOutlookForSupport(w))
-    return outlookSubmissionAccount(w)?.email ?? null;
-  return directSubmissionEmailOf(w);
-}
-
-export function registrationCapabilityOf(
-  w: Pick<Website, 'id' | 'url' | 'email' | 'userId'>
-): EmailCapability {
-  return registrationEmailOf(w) ? 'receive_only' : 'unknown';
+  const email = w.googleLoginEmail;
+  return email && isEmail(email) ? email : null;
 }
 
 /** Field names follow the form: name, url, shortDesc, icon, userAvatar … */
@@ -285,14 +273,11 @@ export function submissionReadiness(w: WebsiteView): Readiness {
   if (!w.name) blocking.push('name');
   if (!w.url || !isHttpUrl(w.url)) blocking.push('url');
   if (!w.shortDesc) blocking.push('shortDesc');
+  if (!registrationEmailOf(w)) blocking.push('googleLoginEmail');
 
   const email = w.email;
   if (!email) missing.push('email');
   else if (!isEmail(email)) invalid.push('email');
-  if (w.registrationEmail && !isEmail(w.registrationEmail))
-    invalid.push('registrationEmail');
-  if (w.verificationInboxEmail && !isEmail(w.verificationInboxEmail))
-    invalid.push('verificationInboxEmail');
   if (!w.longDesc) missing.push('longDesc');
   if (!w.tagline) missing.push('tagline');
   url('icon', w.iconUrl, true);
@@ -318,7 +303,6 @@ export function submissionReadiness(w: WebsiteView): Readiness {
 /** The `product` object handed to agents (snake_case, see the API doc). */
 export function productOf(w: WebsiteView) {
   const registrationEmail = registrationEmailOf(w);
-  const outlook = outlookSubmissionAccount(w);
   const metadata = Object.fromEntries(w.metadata.map((m) => [m.key, m.value]));
   return {
     id: w.id,
@@ -336,13 +320,11 @@ export function productOf(w: WebsiteView) {
     email: registrationEmail,
     contact_email: w.email || null,
     registration_email: registrationEmail,
-    google_login_email: w.googleLoginEmail,
-    verification_inbox_email: outlook?.inbox ?? registrationEmail,
-    verification_method: outlook
-      ? ('outlook' as const)
-      : registrationEmail
-        ? ('backlora' as const)
-        : ('unavailable' as const),
+    google_login_email: registrationEmail,
+    verification_inbox_email: registrationEmail,
+    verification_method: registrationEmail
+      ? ('gmail' as const)
+      : ('unavailable' as const),
     short_description: w.shortDesc || null,
     long_description: w.longDesc || null,
     tagline: w.tagline || null,
@@ -379,7 +361,7 @@ export function productOf(w: WebsiteView) {
     metadata,
     links: w.links,
     auto_backlink_enabled: w.autoBacklinkEnabled,
-    email_capability: registrationCapabilityOf(w),
+    email_capability: w.registrationEmailCapability,
     contact_email_capability: w.emailCapability,
     agent_submission_note: w.agentSubmissionNote || null,
     backlink_management_url: w.backlinkManagementUrl || null,
@@ -501,15 +483,34 @@ export async function listWebsites(
 
 /** Names and ids for pickers. */
 export async function websiteOptions(userId: string) {
-  return (await db()
-    .select({ id: website.id, name: website.name, url: website.url })
+  const rows = (await db()
+    .select({
+      id: website.id,
+      name: website.name,
+      url: website.url,
+      status: website.status,
+      autoBacklinkEnabled: website.autoBacklinkEnabled,
+      googleLoginEmail: website.googleLoginEmail,
+    })
     .from(website)
     .where(and(eq(website.userId, userId), isNull(website.deletedAt)))
     .orderBy(desc(website.updatedAt))) as {
     id: string;
     name: string;
     url: string;
+    status: string;
+    autoBacklinkEnabled: boolean;
+    googleLoginEmail: string | null;
   }[];
+  return rows.map(({ id, name, url, ...site }) => ({
+    id,
+    name,
+    url,
+    canRunBacklinks:
+      site.status === 'enabled' &&
+      site.autoBacklinkEnabled &&
+      !!registrationEmailOf(site),
+  }));
 }
 
 export async function getWebsite(

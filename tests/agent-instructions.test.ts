@@ -118,7 +118,7 @@ test('a selected project includes its configured Google address in the copied id
     });
     assert.ok(
       copied.startsWith(
-        `【注册身份与公开联系邮箱】\n本网站授权的 Google 登录账号为 \`${googleLoginEmail}\``
+        `【注册身份与公开联系邮箱】\n本网站复制命令时的 Google 登录邮箱为 \`${googleLoginEmail}\``
       )
     );
     assert.equal(copied.split(googleLoginEmail).length - 1, 1);
@@ -131,28 +131,11 @@ test('a selected project includes its configured Google address in the copied id
   );
 });
 
-test('a project uses its enterprise registration address without exposing it in the generic API doc', () => {
-  const registrationEmail = 'support@gridcraft.example';
-  const account = { websiteId: options.websiteId, registrationEmail };
-  const primary = buildPrimaryPrompt({ ...options, ...account });
-  const copied = buildAgentInstructions({
-    baseUrl,
-    primary,
-    custom: '',
-    ...account,
-  });
-  assert.ok(copied.split('\n')[1].includes(registrationEmail));
-  assert.equal(copied.split(registrationEmail).length - 1, 1);
-  assert.ok(!buildApiDoc(baseUrl).includes(registrationEmail));
-});
-
-test('copied Outlook instructions identify the project login and the separate Ego inbox', () => {
-  const registrationEmail = 'support@project.example';
-  const verificationInboxEmail = 'verification@outlook.com';
+test('copying a command uses one project Google email for all login and verification steps', () => {
+  const googleLoginEmail = 'project-login@gmail.com';
   const account = {
     websiteId: options.websiteId,
-    registrationEmail,
-    verificationInboxEmail,
+    googleLoginEmail,
   };
   const copied = buildAgentInstructions({
     baseUrl,
@@ -162,11 +145,122 @@ test('copied Outlook instructions identify the project login and the separate Eg
   });
   assert.match(
     copied.split('\n')[1],
-    /support@project\.example.*Outlook.*verification@outlook\.com/
+    /project-login@gmail\.com.*用于注册、登录和查收验证码/
   );
-  assert.equal(copied.split(verificationInboxEmail).length - 1, 1);
-  assert.match(copied, /核对原收件地址与当前项目的 login_email/);
-  assert.ok(!buildApiDoc(baseUrl).includes(verificationInboxEmail));
+  assert.equal(copied.split(googleLoginEmail).length - 1, 1);
+  assert.match(
+    copied,
+    /login_email、google_login_email 和 verification_inbox_email 必须是同一个已配置的地址/
+  );
+  assert.match(copied, /自动选择模式由服务端筛选已填 Google 邮箱的项目/);
+  assert.match(copied, /missing_google_login_email/);
+  assert.ok(!buildApiDoc(baseUrl).includes(googleLoginEmail));
+  assert.doesNotMatch(copied, /Outlook|verification_method=outlook/);
+});
+
+test('Google login selects the configured signed-in account and handles the actual OAuth page', () => {
+  const instructions = buildSubmissionIdentityInstructions();
+  assert.match(
+    instructions,
+    /只支持 Google，或普通邮箱入口要求密码且无可用凭据时/
+  );
+  assert.match(
+    instructions,
+    /打开头像菜单，等列表加载后检查所有已登录账号.*与 google_login_email 完全一致.*核对切换后的页面或新标签页/
+  );
+  assert.match(instructions, /默认账号不同不能直接判定无会话/);
+  assert.match(instructions, /菜单持续加载记录为会话检查超时/);
+  assert.match(
+    instructions,
+    /点外站 Google 按钮前先 POST google_login_path.*核对返回邮箱/
+  );
+  assert.match(
+    instructions,
+    /同时检查原标签页跳转和新弹出的 Google 账号选择页/
+  );
+  assert.match(instructions, /返回外站后核实站内账号邮箱/);
+  assert.match(instructions, /没有发起授权且无既有提交时.*再试一次/);
+  assert.match(instructions, /外站旧会话、绑定拒绝、授权页未打开或回跳失败/);
+  assert.match(instructions, /回传成功且未达到上限时，下一步直接调用 start/);
+});
+
+test('Gmail preflight verifies the visible active address before falling back to the account menu', () => {
+  const instructions = buildSubmissionIdentityInstructions();
+  const match = instructions.match(
+    /await gmail\.waitForFunction\((.+), account_policy\.google_login_email, \{ timeout: 15000 \}\)/
+  );
+  assert.ok(match);
+  assert.match(
+    instructions,
+    /先在当前 Ego 任务空间用 account_policy\.mailbox_url 直达指定邮箱/
+  );
+  assert.ok(
+    instructions.indexOf(match[0]) <
+      instructions.indexOf('https://myaccount.google.com/')
+  );
+
+  const compileCheck = new Function(
+    'document',
+    'location',
+    `return ${match[1]};`
+  );
+  const badge = (label: string, visible = true) => ({
+    getAttribute: () => label,
+    getClientRects: () => (visible ? [1] : []),
+  });
+  const check = (
+    nodes: ReturnType<typeof badge>[],
+    origin = 'https://mail.google.com'
+  ) =>
+    compileCheck(
+      { querySelectorAll: () => nodes },
+      { origin }
+    )('team@gmail.com');
+
+  assert.equal(check([badge('Google 账号： Team (TEAM@gmail.com)')]), true);
+  assert.equal(
+    check([badge('Google Account: Different (newteam@gmail.com)')]),
+    false
+  );
+  assert.equal(
+    check([badge('Google Account: Team (team@gmail.com)', false)]),
+    false
+  );
+  assert.equal(check([badge('Message from team@gmail.com')]), false);
+  assert.equal(
+    check(
+      [badge('Google Account: Team (team@gmail.com)')],
+      'https://example.test'
+    ),
+    false
+  );
+});
+
+test('a stale target session is checked for an official switch without logging out other accounts', () => {
+  const instructions = buildSubmissionIdentityInstructions();
+  assert.match(instructions, /站内账户页核对完整邮箱.*官方“切换账号”/);
+  assert.match(
+    instructions,
+    /若只能注销旧账号后切换.*保留外站及 Google 的现有会话/
+  );
+});
+
+test('Gmail account readiness is checked before requesting a code and has a bounded recovery', () => {
+  const instructions = buildSubmissionIdentityInstructions();
+  assert.match(
+    instructions,
+    /用 mailbox_url 直达 Gmail 并核对完整邮箱与 verification_inbox_email 一致/
+  );
+  assert.match(
+    instructions,
+    /从头像菜单选择已登录的匹配邮箱，并核对切换后的页面/
+  );
+  assert.match(instructions, /最多等 30 秒.*同一会话刷新一次/);
+  assert.match(
+    instructions,
+    /查收件箱和垃圾邮件，按目标站发件方、收件地址和请求时间匹配/
+  );
+  assert.match(instructions, /最多约 3 分钟，避免重复请求验证码/);
 });
 
 test('all runners and edited prompts retain separate login, inbox and public-contact rules', () => {
@@ -192,7 +286,7 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.includes('product.submission_email'));
       assert.ok(instructions.includes('verification_inbox_email'));
       assert.ok(instructions.includes('google_login_path'));
-      assert.ok(instructions.includes('如果本批还有额度，继续领取下一条'));
+      assert.ok(instructions.includes('下一步直接调用 start 领取下一条'));
       assert.ok(
         instructions.includes(
           '不要要求用户登录 Google、交接浏览器或等待用户回复'
@@ -204,10 +298,7 @@ test('all runners and edited prompts retain separate login, inbox and public-con
       assert.ok(instructions.startsWith(buildSubmissionIdentityInstructions()));
       assert.ok(instructions.includes('unavailable'));
       assert.ok(instructions.includes('无需登录或支持普通邮箱的免费入口'));
-      assert.doesNotMatch(
-        instructions,
-        /wldesign1983|mail\.google\.com|共享 Gmail/i
-      );
+      assert.doesNotMatch(instructions, /wldesign1983|共享 Gmail/i);
     }
   }
 });
@@ -221,7 +312,20 @@ test('saved-job upgrade removes conflicting account rules and preserves credenti
   assert.ok(updated.includes('test-only-placeholder'));
   assert.ok(updated.includes('最多处理 7 个任务'));
   assert.ok(updated.includes('Gravatar'));
-  assert.ok(updated.includes('保留现有会话并回传该条 needs_user/account'));
+  assert.ok(updated.includes('保留外站及 Google 的现有会话'));
+  assert.equal(upgradeSubmissionIdentityPrompt(updated), updated);
+});
+
+test('saved jobs replace obsolete Google API directions and keep following sections', () => {
+  const old =
+    '## 使用已授权的 Google 账号\n\n只支持 Google 登录的站点。\n请始终选默认账号。\n\n## 查询任务\n\n保留原任务查询说明。';
+  const updated = upgradeSubmissionIdentityPrompt(old);
+  assert.doesNotMatch(updated, /请始终选默认账号/);
+  assert.match(
+    updated,
+    /## 使用已授权的 Google 账号\n\n按“注册身份与公开联系邮箱”/
+  );
+  assert.match(updated, /## 查询任务\n\n保留原任务查询说明/);
   assert.equal(upgradeSubmissionIdentityPrompt(updated), updated);
 });
 

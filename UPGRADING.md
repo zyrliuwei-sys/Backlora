@@ -4,6 +4,33 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-27 — Claim free backlink URLs with submission evidence first
+
+Website tasks first use eligible URLs that were accepted or verified live for
+another project owned by the same user. Enabled personal entries with that
+history may supplement an assigned queue before it looks at unverified URLs.
+URLs with recent technical blockers on multiple projects stay eligible but rank
+lower. Empty queue responses show the number of pending entries excluded for
+cost. No database migration is required.
+
+## 2026-11-27 — Check the selected Gmail session directly
+
+The generated agent command checks the project mailbox through its
+account-specific Gmail URL before opening the Google account menu. It
+reports a browser check timeout separately from an unavailable account
+and continues after reporting an individual account blocker. Previously
+copied commands need the latest login instructions. No database migration
+is required.
+
+## 2026-11-27 — Select the configured Google account when signing in
+
+Backlora commands check the browser's signed-in Google accounts for the exact
+project address, then follow the target site's redirect or account chooser.
+Existing target sessions have their own account check. The agent uses a
+target's account switch when available and reports the exact step that
+blocks login. Previously copied commands need the updated login instructions
+before their next run. No database migration is required.
+
 ## 2026-11-25 — Reuse successful backlink targets on another website
 
 My Library shows a right-hand list of unique successful submission URLs and
@@ -767,3 +794,22 @@ identity and the mailbox URL. The runner uses the existing signed-in Ego
 session. Other owners keep their configured verification method. Projects
 without a saved support address have no email login in Outlook mode.
 Existing direct Cloudflare forwards to Outlook can stay in place.
+
+Refresh copied agent instructions to use the updated login recovery steps.
+For Google-only sites, the runner checks for the project's exact approved
+Google account and binds it before sign-in, even if the task initially lists
+email as its login provider. For Outlook verification, the runner checks the
+existing inbox session before requesting a code. It can refresh a stalled
+inbox once and search both Inbox and Junk for a matching message. These
+changes require no schema or mailbox configuration changes.
+
+## Required Google account for backlink runs
+
+Fill in the project's Google login email before copying or running a backlink
+command. This address serves as the registration identity, the Google sign-in
+account, and the Gmail inbox for verification in Ego. The separate public email
+continues to receive general contact mail through its existing mail routing.
+New tasks use the current project setting. Older attempts retain their original
+identity and enter account review when it differs. Automatic website selection
+skips projects that lack a Google login email. Existing copied commands should
+be regenerated. No database migration is required.

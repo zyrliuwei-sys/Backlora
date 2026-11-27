@@ -12,8 +12,6 @@ type MailBindings = {
   BACKLORA_SUBMISSION_DOMAINS?: string;
   BACKLORA_SUPPORT_MAILBOXES?: string;
   BACKLORA_SUPPORT_MAIL_FORWARD_TO?: string;
-  BACKLORA_OUTLOOK_WEBSITE_OWNER_ID?: string;
-  BACKLORA_OUTLOOK_INBOX?: string;
   VERIFICATION_MAIL?: VerificationMailbox;
 };
 
@@ -24,30 +22,6 @@ export function mailBindings(): MailBindings {
 }
 
 const SUPPORT_ADDRESS = /^support@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
-
-export function usesOutlookForSupport(
-  site: { userId: string },
-  env = mailBindings()
-) {
-  return site.userId === env.BACKLORA_OUTLOOK_WEBSITE_OWNER_ID;
-}
-
-export function outlookSubmissionAccount(
-  site: { userId: string; email: string | null },
-  env = mailBindings()
-) {
-  if (!usesOutlookForSupport(site, env)) return null;
-  const email = site.email?.trim().toLowerCase();
-  const inbox = env.BACKLORA_OUTLOOK_INBOX?.trim().toLowerCase();
-  if (
-    !email ||
-    !SUPPORT_ADDRESS.test(email) ||
-    !inbox ||
-    !/^[^\s@]+@outlook\.com$/.test(inbox)
-  )
-    return null;
-  return { email, inbox, mailboxUrl: 'https://outlook.live.com/mail/' };
-}
 
 function parseMailboxMapping(value: string): Record<string, unknown> {
   try {
@@ -127,15 +101,6 @@ function supportSubmissionEmailOf(site: SubmissionSite, env: MailBindings) {
   return email && supportMailboxForRecipient(email, env)?.siteId === site.id
     ? email
     : null;
-}
-
-export function directSubmissionEmailOf(
-  site: SubmissionSite,
-  env = mailBindings()
-) {
-  return (
-    supportSubmissionEmailOf(site, env) ?? legacySubmissionEmailOf(site, env)
-  );
 }
 
 export function canReceiveSubmissionEmail(

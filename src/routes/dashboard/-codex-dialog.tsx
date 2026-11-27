@@ -183,10 +183,6 @@ export function CodexDialog({
   const readiness = site.data?.submission_readiness;
   const websiteId = siteId === AUTO ? null : siteId;
   const googleLoginEmail = websiteId ? site.data?.googleLoginEmail : null;
-  const registrationEmail = websiteId ? site.data?.registrationEmail : null;
-  const verificationInboxEmail = websiteId
-    ? site.data?.verificationInboxEmail
-    : null;
   const scope =
     dataSource === 'website' ? 'all_eligible' : (scopeChoice ?? 'recommended');
 
@@ -198,8 +194,6 @@ export function CodexDialog({
         apiKey: apiKey || '<API_KEY>',
         websiteId,
         googleLoginEmail,
-        registrationEmail,
-        verificationInboxEmail,
         dataSource,
         category,
         num,
@@ -212,8 +206,6 @@ export function CodexDialog({
       apiKey,
       websiteId,
       googleLoginEmail,
-      registrationEmail,
-      verificationInboxEmail,
       dataSource,
       category,
       num,
@@ -233,18 +225,20 @@ export function CodexDialog({
     }
   }
 
-  const blocked = !!readiness && readiness.blocking_fields.length > 0;
-  const waitingForSite = !!websiteId && (!site.data || site.isFetching);
+  const autoBlocked = !websiteId && !sites.data?.some((s) => s.canRunBacklinks);
+  const blocked = autoBlocked || !!readiness?.blocking_fields.length;
+  const waitingForSite = websiteId
+    ? !site.data || site.isFetching
+    : sites.isFetching;
 
   async function copy() {
+    if (!apiKey || blocked || waitingForSite) return;
     const text = buildAgentInstructions({
       baseUrl,
       primary: primaryText,
       custom,
       websiteId,
       googleLoginEmail,
-      registrationEmail,
-      verificationInboxEmail,
     });
     try {
       await navigator.clipboard.writeText(text);
@@ -405,6 +399,11 @@ export function CodexDialog({
               {m['dash.common.close']()}
             </Button>
           </div>
+          {autoBlocked && !sites.isFetching && (
+            <p className="text-destructive text-sm">
+              {m['dash.codex.google_login_required']()}
+            </p>
+          )}
           {scope === 'all_eligible' && (
             <p className="text-muted-foreground text-xs">
               {dataSource === 'website' &&
@@ -432,7 +431,13 @@ export function CodexDialog({
                 {readiness.blocking_fields.length ? (
                   <span className="text-destructive">
                     {m['dash.codex.readiness_blocking']({
-                      fields: readiness.blocking_fields.join(', '),
+                      fields: readiness.blocking_fields
+                        .map((field) =>
+                          field === 'googleLoginEmail'
+                            ? m['dash.form.google_login_email']()
+                            : field
+                        )
+                        .join(', '),
                     })}
                   </span>
                 ) : readiness.missing_fields.length ||

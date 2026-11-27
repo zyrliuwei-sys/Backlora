@@ -492,9 +492,9 @@ export function useWebsiteOptions() {
   return useQuery({
     queryKey: ['website-options'],
     queryFn: () =>
-      apiGet<{ id: string; name: string; url: string }[]>(
-        '/api/websites/options'
-      ),
+      apiGet<
+        { id: string; name: string; url: string; canRunBacklinks: boolean }[]
+      >('/api/websites/options'),
   });
 }
 

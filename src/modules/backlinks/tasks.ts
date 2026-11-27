@@ -6,6 +6,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -57,6 +58,8 @@ import {
 } from './websites';
 
 const FINAL = ['submitted', 'live', 'duplicate'] as const;
+const MISSING_GOOGLE_LOGIN =
+  'Set the project Google login email before starting backlink tasks';
 
 // ─── Task view ──────────────────────────────────────────────────────────────
 
@@ -72,16 +75,11 @@ async function taskView(userId: string, r: WebsiteBacklink) {
   const submissionEmail = r.submissionEmail;
   const googleEmail = product.google_login_email;
   const matchesGoogle =
-    !!googleEmail && submissionEmail?.toLowerCase() === googleEmail;
-  const previouslyUsedGoogle =
-    r.submissionAuthProvider === 'google' ||
-    (matchesGoogle && submissionEmail !== product.registration_email);
-  const usesGoogle = previouslyUsedGoogle && matchesGoogle;
+    submissionEmail?.toLowerCase() === googleEmail?.toLowerCase();
+  const usesGoogle =
+    !!googleEmail && matchesGoogle && r.submissionAuthProvider === 'google';
   const identityReviewRequired = submissionEmail
-    ? previouslyUsedGoogle
-      ? !matchesGoogle
-      : submissionEmail.toLowerCase() !==
-        product.registration_email?.toLowerCase()
+    ? !matchesGoogle
     : r.attemptCount > 1 ||
       (r.attemptCount > 0 && !!product.registration_email);
   return {
@@ -138,21 +136,10 @@ async function taskView(userId: string, r: WebsiteBacklink) {
         : product.registration_email
           ? 'email'
           : null,
-      verification_inbox_email: usesGoogle
-        ? googleEmail
-        : product.verification_inbox_email,
-      mailbox_url: usesGoogle
-        ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(googleEmail)}#inbox`
-        : product.email_management_url,
-      verification_method: usesGoogle
-        ? ('gmail' as const)
-        : product.verification_method,
-      verification_path:
-        product.verification_method === 'backlora' &&
-        !identityReviewRequired &&
-        !usesGoogle
-          ? `/api/v1/backlink-tasks/${r.id}/verification-email`
-          : null,
+      verification_inbox_email: product.verification_inbox_email,
+      mailbox_url: product.email_management_url,
+      verification_method: product.verification_method,
+      verification_path: null,
       public_contact_email: product.contact_email,
       allow_logout: false,
       requires_account_review: identityReviewRequired,
@@ -246,7 +233,12 @@ async function expireLeases(userId: string) {
     );
 }
 
-function claimGuards(userId: string, workerId: string, websiteId: string) {
+function claimGuards(
+  userId: string,
+  workerId: string,
+  websiteId: string,
+  loginEmail: string
+) {
   return [
     // Lock the user before checking for a running task. The separate check
     // sees the preceding claimant's commit on Postgres as well as D1 batch.
@@ -266,6 +258,7 @@ function claimGuards(userId: string, workerId: string, websiteId: string) {
         isNull(website.deletedAt),
         eq(website.status, 'enabled'),
         eq(website.autoBacklinkEnabled, true),
+        eq(website.googleLoginEmail, loginEmail),
         sql`not exists (select 1 from ${websiteBacklink} where ${websiteBacklink.userId} = ${userId} and ${websiteBacklink.claimedBy} = ${workerId} and ${websiteBacklink.operationStatus} = 'in_progress' and ${gt(websiteBacklink.leaseExpiresAt, new Date())})`
       )!,
       message: 'Worker busy or website disabled',
@@ -299,6 +292,8 @@ async function activeTask(
   const w = await requireWebsite(userId, mine.websiteId);
   if (!w.autoBacklinkEnabled || w.status !== 'enabled')
     throw new BacklinkError('Auto backlinks are off for this website', 409);
+  if (!registrationEmailOf(w))
+    throw new BacklinkError(MISSING_GOOGLE_LOGIN, 409);
   return mine;
 }
 
@@ -328,17 +323,42 @@ function notPreviouslyPaid(userId: string, target: SQL) {
   return sql`${target} not in (select paid.target_url from ${websiteBacklink} paid where paid.user_id = ${userId} and paid.failure_reason = 'paid')`;
 }
 
+function previouslyAccepted(userId: string, target: SQL) {
+  return sql`${target} in (select result.target_url from ${websiteBacklink} result where result.user_id = ${userId} and result.operation_status in ('submitted', 'live'))`;
+}
+
+function claimPriority(userId: string, target: SQL, acceptedOnly: boolean) {
+  const recommended = sql`${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified')`;
+  if (acceptedOnly) return sql`case when ${recommended} then 0 else 1 end`;
+
+  // Shared evidence only changes order. Outages and missing forms can recover.
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const repeatedlyUnavailable = sql`${target} in (
+    select failure.target_url from ${websiteBacklink} failure
+    where failure.user_id = ${userId} and failure.operation_status = 'blocked'
+      and failure.failure_reason in ('no_entry', 'site_down')
+      and failure.updated_at >= ${cutoff}
+    group by failure.target_url having count(distinct failure.website_id) >= 2
+  )`;
+  return sql`case
+    when ${previouslyAccepted(userId, target)} then 0
+    when ${repeatedlyUnavailable} then 3
+    when ${recommended} then 1
+    else 2 end`;
+}
+
 /** Claim one existing pending record of the website. */
 async function claimExisting(
   userId: string,
   w: Website,
   workerId: string,
+  submissionEmail: string,
   source: DataSource,
   scope: TaskScope,
   category?: string,
-  includePaid = false
+  includePaid = false,
+  acceptedOnly = false
 ): Promise<WebsiteBacklink | null> {
-  const submissionEmail = registrationEmailOf(w);
   for (let attempt = 0; attempt < 5; attempt++) {
     const [candidate]: { id: string }[] = await db()
       .select({ id: websiteBacklink.id })
@@ -349,6 +369,9 @@ async function claimExisting(
           eq(websiteBacklink.userId, userId),
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
+          acceptedOnly
+            ? previouslyAccepted(userId, sql`${websiteBacklink.targetUrl}`)
+            : undefined,
           includePaid
             ? undefined
             : notPreviouslyPaid(userId, sql`${websiteBacklink.targetUrl}`),
@@ -367,7 +390,7 @@ async function claimExisting(
         )
       )
       .orderBy(
-        sql`case when ${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified') then 0 else 1 end`,
+        claimPriority(userId, sql`${websiteBacklink.targetUrl}`, acceptedOnly),
         sql`${backlink.dr} is null`,
         desc(backlink.dr),
         asc(websiteBacklink.createdAt)
@@ -377,7 +400,7 @@ async function claimExisting(
     const lease = newLease(workerId);
     try {
       await atomic((q) => [
-        ...claimGuards(userId, workerId, w.id),
+        ...claimGuards(userId, workerId, w.id, submissionEmail),
         q
           .update(websiteBacklink)
           .set({
@@ -417,12 +440,13 @@ async function claimFromLibrary(
   userId: string,
   w: Website,
   workerId: string,
+  submissionEmail: string,
   source: 'plaza' | 'personal',
   scope: TaskScope,
   category?: string,
-  includePaid = false
+  includePaid = false,
+  acceptedOnly = false
 ): Promise<WebsiteBacklink | null> {
-  const submissionEmail = registrationEmailOf(w);
   const notYetRecorded = notExists(
     db()
       .select({ one: sql`1` })
@@ -442,6 +466,9 @@ async function claimFromLibrary(
         and(
           ...sourceConditions(userId, source),
           ...eligibility(scope, category, includePaid),
+          acceptedOnly
+            ? previouslyAccepted(userId, sql`${backlink.link}`)
+            : undefined,
           includePaid
             ? undefined
             : notPreviouslyPaid(userId, sql`${backlink.link}`),
@@ -450,7 +477,7 @@ async function claimFromLibrary(
         )
       )
       .orderBy(
-        sql`case when ${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified') then 0 else 1 end`,
+        claimPriority(userId, sql`${backlink.link}`, acceptedOnly),
         sql`${backlink.dr} is null`,
         desc(backlink.dr),
         asc(backlink.createdAt)
@@ -461,7 +488,7 @@ async function claimFromLibrary(
     const id = getUuid();
     try {
       await atomic((q) => [
-        ...claimGuards(userId, workerId, w.id),
+        ...claimGuards(userId, workerId, w.id, submissionEmail),
         q
           .insert(websiteBacklink)
           .values({
@@ -611,13 +638,53 @@ export async function startTask(userId: string, body: StartBody) {
   const mine = await activeTask(userId, workerId, websiteId);
   if (mine) return { task: await taskView(userId, mine) };
 
-  for (const w of sites) {
+  const readySites = sites.flatMap((website) => {
+    const email = registrationEmailOf(website);
+    return email ? [{ website, email }] : [];
+  });
+  if (websiteId && readySites.length === 0)
+    throw new BacklinkError(MISSING_GOOGLE_LOGIN, 409);
+
+  for (const { website: w, email } of readySites) {
+    if (useWebsiteFallback) {
+      const assigned = await claimExisting(
+        userId,
+        w,
+        workerId,
+        email,
+        'website',
+        claimScope,
+        category,
+        false,
+        true
+      );
+      if (assigned) return claimedTask(userId, assigned);
+      const personal = await claimFromLibrary(
+        userId,
+        w,
+        workerId,
+        email,
+        'personal',
+        claimScope,
+        category,
+        false,
+        true
+      );
+      if (personal) {
+        return {
+          ...(await claimedTask(userId, personal)),
+          queue: { source: 'personal', effective_scope: claimScope },
+        };
+      }
+    }
+
     // Existing pending records first; plaza/personal then create on demand.
     const row =
       (await claimExisting(
         userId,
         w,
         workerId,
+        email,
         dataSource,
         claimScope,
         category,
@@ -629,6 +696,7 @@ export async function startTask(userId: string, body: StartBody) {
             userId,
             w,
             workerId,
+            email,
             dataSource,
             claimScope,
             category,
@@ -640,11 +708,12 @@ export async function startTask(userId: string, body: StartBody) {
   // Fill a gap only from the user's enabled, recommended personal entries.
   // Search assigned work across all selected sites before creating a new row.
   if (useWebsiteFallback) {
-    for (const w of sites) {
+    for (const { website: w, email } of readySites) {
       const row = await claimFromLibrary(
         userId,
         w,
         workerId,
+        email,
         'personal',
         'recommended',
         category
@@ -663,11 +732,16 @@ export async function startTask(userId: string, body: StartBody) {
   if (concurrent) return { task: await taskView(userId, concurrent) };
 
   let pending: number | null = null;
-  if (dataSource === 'website' && sites.length > 0) {
+  let excludedPaid: number | undefined;
+  if (dataSource === 'website' && readySites.length > 0) {
     const [result] = await db()
-      .select({ total: count() })
+      .select({
+        total: count(),
+        paid: sql<number>`count(case when ${backlink.costType} = 'paid' or not (${notPreviouslyPaid(userId, sql`${websiteBacklink.targetUrl}`)}) then 1 end)`,
+      })
       .from(websiteBacklink)
       .innerJoin(website, eq(website.id, websiteBacklink.websiteId))
+      .leftJoin(backlink, eq(backlink.id, websiteBacklink.backlinkId))
       .where(
         and(
           eq(websiteBacklink.userId, userId),
@@ -675,29 +749,34 @@ export async function startTask(userId: string, body: StartBody) {
           eq(website.userId, userId),
           eq(website.status, 'enabled'),
           eq(website.autoBacklinkEnabled, true),
+          isNotNull(website.googleLoginEmail),
           isNull(website.deletedAt),
           websiteId ? eq(website.id, websiteId) : undefined
         )
       );
     pending = result?.total ?? 0;
+    excludedPaid = includePaid ? undefined : Number(result?.paid ?? 0);
   }
 
   const reason =
     sites.length === 0
       ? 'no_enabled_websites'
-      : pending === null
-        ? 'no_eligible_library_entries'
-        : pending === 0
-          ? 'no_pending_website_tasks'
-          : 'no_eligible_website_tasks';
+      : readySites.length === 0
+        ? 'missing_google_login_email'
+        : pending === null
+          ? 'no_eligible_library_entries'
+          : pending === 0
+            ? 'no_pending_website_tasks'
+            : 'no_eligible_website_tasks';
   return {
     task: null,
     queue: {
       reason,
       pending,
+      ...(excludedPaid ? { excluded_paid: excludedPaid } : {}),
       requested_scope: scope,
       effective_scope: claimScope,
-      checked_personal_library: useWebsiteFallback && sites.length > 0,
+      checked_personal_library: useWebsiteFallback && readySites.length > 0,
     },
   };
 }
@@ -725,7 +804,7 @@ export async function bindTaskGoogleLogin(
   if (!leaseId) throw new BacklinkError('lease_id is required');
   const record = await recordOf(userId, id);
   const w = await requireWebsite(userId, record.websiteId);
-  const email = w.googleLoginEmail;
+  const email = registrationEmailOf(w);
   if (!email || !w.autoBacklinkEnabled || w.status !== 'enabled')
     throw new BacklinkError('Google login unavailable for this website', 409);
 
@@ -733,7 +812,7 @@ export async function bindTaskGoogleLogin(
   // blockage never reached account creation or submission.
   const canBind =
     record.submissionAuthProvider !== 'google' &&
-    record.submissionEmail === registrationEmailOf(w) &&
+    record.submissionEmail === email &&
     !record.submittedAt &&
     !record.resultUrl &&
     (record.attemptCount === 1 ||
@@ -741,8 +820,7 @@ export async function bindTaskGoogleLogin(
         body.confirmed_no_prior_account === true));
   const isBound =
     record.submissionEmail === email &&
-    (record.submissionAuthProvider === 'google' ||
-      email !== registrationEmailOf(w));
+    record.submissionAuthProvider === 'google';
   if (!isBound && !canBind)
     throw new BacklinkError(
       'Review the prior submission account before using Google login',
@@ -759,9 +837,7 @@ export async function bindTaskGoogleLogin(
         eq(websiteBacklink.operationStatus, 'in_progress'),
         eq(websiteBacklink.claimedBy, workerId),
         eq(websiteBacklink.leaseId, leaseId),
-        record.submissionEmail === null
-          ? isNull(websiteBacklink.submissionEmail)
-          : eq(websiteBacklink.submissionEmail, record.submissionEmail),
+        eq(websiteBacklink.submissionEmail, email),
         sql`exists (select 1 from ${website} where ${website.id} = ${record.websiteId} and ${website.userId} = ${userId} and ${website.googleLoginEmail} = ${email} and ${website.deletedAt} is null and ${website.status} = 'enabled' and ${website.autoBacklinkEnabled} = 1)`,
         gt(websiteBacklink.leaseExpiresAt, new Date())
       )

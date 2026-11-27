@@ -595,14 +595,16 @@ export function WebsiteFields({
             <F
               label={m['dash.form.google_login_email']()}
               htmlFor={`${fieldId}-google`}
+              required
             >
               <Input
                 id={`${fieldId}-google`}
                 type="email"
                 autoComplete="off"
+                aria-required="true"
                 value={v.googleLoginEmail ?? ''}
                 onChange={(e) => set('googleLoginEmail', e.target.value)}
-                placeholder="name@example.com"
+                placeholder="name@gmail.com"
                 aria-describedby={`${fieldId}-google-hint`}
               />
               <p
