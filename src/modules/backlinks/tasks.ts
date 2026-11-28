@@ -327,22 +327,38 @@ function previouslyAccepted(userId: string, target: SQL) {
   return sql`${target} in (select result.target_url from ${websiteBacklink} result where result.user_id = ${userId} and result.operation_status in ('submitted', 'live'))`;
 }
 
+function recentlyUnavailable(userId: string, target: SQL) {
+  // Evaluate recent evidence once per URL. A later accepted submission can
+  // restore the URL's priority after an outage or a changed entry point.
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const failure = sql`outcome.operation_status in ('blocked', 'needs_user')
+    and outcome.failure_reason in ('no_entry', 'site_down')`;
+  const accepted = sql`outcome.operation_status in ('submitted', 'live')`;
+  return sql`${target} in (
+    select outcome.target_url from ${websiteBacklink} outcome
+    where outcome.user_id = ${userId} and outcome.updated_at >= ${cutoff}
+      and outcome.operation_status in ('blocked', 'needs_user', 'submitted', 'live')
+      and ((${failure}) or (${accepted}))
+    group by outcome.target_url
+    having count(distinct case when ${failure} then outcome.website_id end) >= 2
+      and max(case when ${failure} then outcome.updated_at end)
+        > coalesce(max(case when ${accepted} then outcome.updated_at end), 0)
+  )`;
+}
+
+function acceptedAndAvailable(userId: string, target: SQL) {
+  return and(
+    previouslyAccepted(userId, target),
+    sql`not (${recentlyUnavailable(userId, target)})`
+  );
+}
+
 function claimPriority(userId: string, target: SQL, acceptedOnly: boolean) {
   const recommended = sql`${backlink.status} = 'approved' and ${backlink.costType} in ('free', 'freemium') and ${backlink.confidence} in ('observed', 'verified')`;
   if (acceptedOnly) return sql`case when ${recommended} then 0 else 1 end`;
-
-  // Shared evidence only changes order. Outages and missing forms can recover.
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const repeatedlyUnavailable = sql`${target} in (
-    select failure.target_url from ${websiteBacklink} failure
-    where failure.user_id = ${userId} and failure.operation_status = 'blocked'
-      and failure.failure_reason in ('no_entry', 'site_down')
-      and failure.updated_at >= ${cutoff}
-    group by failure.target_url having count(distinct failure.website_id) >= 2
-  )`;
   return sql`case
+    when ${recentlyUnavailable(userId, target)} then 3
     when ${previouslyAccepted(userId, target)} then 0
-    when ${repeatedlyUnavailable} then 3
     when ${recommended} then 1
     else 2 end`;
 }
@@ -370,7 +386,7 @@ async function claimExisting(
           eq(websiteBacklink.websiteId, w.id),
           eq(websiteBacklink.operationStatus, 'pending'),
           acceptedOnly
-            ? previouslyAccepted(userId, sql`${websiteBacklink.targetUrl}`)
+            ? acceptedAndAvailable(userId, sql`${websiteBacklink.targetUrl}`)
             : undefined,
           includePaid
             ? undefined
@@ -467,7 +483,7 @@ async function claimFromLibrary(
           ...sourceConditions(userId, source),
           ...eligibility(scope, category, includePaid),
           acceptedOnly
-            ? previouslyAccepted(userId, sql`${backlink.link}`)
+            ? acceptedAndAvailable(userId, sql`${backlink.link}`)
             : undefined,
           includePaid
             ? undefined

@@ -260,6 +260,8 @@ test('Gmail account readiness is checked before requesting a code and has a boun
     instructions,
     /查收件箱和垃圾邮件，按目标站发件方、收件地址和请求时间匹配/
   );
+  assert.match(instructions, /目标站表单标签页一直保留/);
+  assert.match(instructions, /搜索结果持续加载.*查看收件箱和垃圾邮件/);
   assert.match(instructions, /最多约 3 分钟，避免重复请求验证码/);
 });
 
@@ -350,6 +352,8 @@ test('failure recovery distinguishes official partner badges, eligibility, free 
     'British Columbia',
     'https://dokeyai.com/submit',
     'queue_full',
+    'blocked/no_entry',
+    'skipped/forbidden',
     'RLS',
     '不重新发送',
   ]) {

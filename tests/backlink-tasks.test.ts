@@ -84,6 +84,7 @@ const {
   updateWebsite,
   createWebsite,
   websiteOptions,
+  websiteCounts,
 } = await import('../src/modules/backlinks/websites');
 const { readVerificationMail, routeIncomingMail, verificationOf } =
   await import('../src/modules/backlinks/verification-mail');
@@ -163,6 +164,20 @@ const claim = (id: string, extra = {}) =>
     task_scope: 'all_eligible',
     ...extra,
   });
+
+test('website counters distinguish failed attempts from deliberate skips', async () => {
+  const id = await fixture();
+  await record(id, 'blocked', 'blocked', { failureReason: 'site_down' });
+  await record(id, 'skipped', 'skipped', { failureReason: 'forbidden' });
+  await record(id, 'account', 'needs_user', { failureReason: 'account' });
+  await record(id, 'accepted', 'submitted');
+  const counts = (await websiteCounts(id, [id])).get(id);
+  assert.equal(counts?.blocked, 1);
+  assert.equal(counts?.skipped, 1);
+  assert.equal(counts?.needsUser, 1);
+  assert.equal(counts?.done, 1);
+  assert.equal(counts?.failed, 2);
+});
 
 test('bulk library removal stays inside the current account and group', async () => {
   const id = await fixture();
@@ -1084,18 +1099,26 @@ test('free website claims use the owner’s accepted URLs and put repeated techn
   const id = await fixture();
   const foreignOwner = await fixture();
   const third = `${id}-third`;
+  const older = `${id}-older`;
   await db()
     .insert(website)
-    .values({
-      id: third,
-      userId: id,
-      name: third,
-      url: `https://${third}.example.test`,
-    });
+    .values(
+      [third, older].map((websiteId) => ({
+        id: websiteId,
+        userId: id,
+        name: websiteId,
+        url: `https://${websiteId}.example.test`,
+      }))
+    );
   const accepted = `https://directory.example.test/${id}/accepted`;
   const unavailable = `https://directory.example.test/${id}/unavailable`;
   await record(foreignOwner, 'foreign-success', 'live', {
     targetUrl: unavailable,
+  });
+  await record(id, 'older-receipt', 'submitted', {
+    websiteId: older,
+    targetUrl: unavailable,
+    updatedAt: new Date(Date.now() - 60_000),
   });
   await record(id, 'old-success', 'submitted', {
     websiteId: `${id}-other`,
@@ -1106,7 +1129,7 @@ test('free website claims use the owner’s accepted URLs and put repeated techn
     failureReason: 'site_down',
     targetUrl: unavailable,
   });
-  await record(id, 'broken-two', 'blocked', {
+  await record(id, 'broken-two', 'needs_user', {
     websiteId: third,
     failureReason: 'no_entry',
     targetUrl: unavailable,
@@ -1121,6 +1144,11 @@ test('free website claims use the owner’s accepted URLs and put repeated techn
     claim(id, { data_source: 'website', worker_id: `${id}-${worker}` });
   assert.equal((await take('one')).task?.id, `${id}-proven`);
   assert.equal((await take('two')).task?.id, `${id}-unknown`);
+  await record(id, 'another-unknown', 'pending', { backlinkId: null });
+  await db()
+    .update(websiteBacklink)
+    .set({ operationStatus: 'live', updatedAt: new Date(Date.now() + 1000) })
+    .where(eq(websiteBacklink.id, `${id}-older-receipt`));
   assert.equal((await take('three')).task?.id, `${id}-unlikely`);
 });
 

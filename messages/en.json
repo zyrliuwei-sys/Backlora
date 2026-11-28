@@ -1564,6 +1564,7 @@
   "dash.websites.in_progress": "In progress",
   "dash.websites.needs_user": "Needs you",
   "dash.websites.failed": "Failed",
+  "dash.websites.skipped": "Skipped",
   "dash.websites.add": "Add",
   "dash.websites.records": "Links",
   "dash.websites.duplicate": "Duplicate",

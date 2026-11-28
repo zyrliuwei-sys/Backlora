@@ -292,37 +292,43 @@ function WebsitesPage() {
                   </label>
                 </TableCell>
                 <TableCell>
-                  <div className="grid grid-cols-5 gap-6">
+                  <div className="grid grid-cols-3 gap-x-4 gap-y-2 lg:grid-cols-6">
                     {(
                       [
                         [m['dash.common.total'](), w.counts.total, ''],
                         [
                           m['dash.websites.in_progress'](),
                           w.counts.inProgress,
-                          'doing',
+                          'progressStatus=doing',
                         ],
                         [
                           m['dash.websites.needs_user'](),
                           w.counts.needsUser,
-                          'waiting',
+                          'progressStatus=waiting',
                         ],
-                        [m['dash.home.done'](), w.counts.done, 'done'],
+                        [
+                          m['dash.home.done'](),
+                          w.counts.done,
+                          'progressStatus=done',
+                        ],
                         [
                           m['dash.websites.failed'](),
-                          w.counts.failed,
-                          'failed',
+                          w.counts.blocked,
+                          'operationStatus=blocked',
+                        ],
+                        [
+                          m['dash.websites.skipped'](),
+                          w.counts.skipped,
+                          'operationStatus=skipped',
                         ],
                       ] as const
-                    ).map(([label, n, progress]) => (
+                    ).map(([label, n, filter]) => (
                       <div key={label} className="min-w-12">
                         <div className="text-muted-foreground text-xs whitespace-nowrap">
                           {label}
                         </div>
                         <Link
-                          href={
-                            recordsHref(w.id) +
-                            (progress && `&progressStatus=${progress}`)
-                          }
+                          href={recordsHref(w.id) + (filter && `&${filter}`)}
                           aria-label={`${label}: ${n}`}
                           className="text-primary text-base tabular-nums hover:underline"
                         >

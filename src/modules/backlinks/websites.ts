@@ -377,6 +377,9 @@ export type WebsiteCounts = {
   inProgress: number;
   needsUser: number;
   done: number;
+  blocked: number;
+  skipped: number;
+  /** Aggregate retained for callers of the website API. */
   failed: number;
   pending: number;
 };
@@ -387,18 +390,20 @@ export function emptyCounts(): WebsiteCounts {
     inProgress: 0,
     needsUser: 0,
     done: 0,
+    blocked: 0,
+    skipped: 0,
     failed: 0,
     pending: 0,
   };
 }
 
-/** 总数 / 进行中 / 待处理 / 已完成 / 失败 as the website list shows them. */
+/** The website list displays blocked attempts and deliberate skips separately. */
 export function bucketOf(status: string): keyof WebsiteCounts {
   if (status === 'in_progress') return 'inProgress';
   if (status === 'needs_user') return 'needsUser';
   if (status === 'submitted' || status === 'live' || status === 'duplicate')
     return 'done';
-  if (status === 'blocked' || status === 'skipped') return 'failed';
+  if (status === 'blocked' || status === 'skipped') return status;
   return 'pending';
 }
 
@@ -425,6 +430,7 @@ export async function websiteCounts(
     for (const r of rows) {
       const c = map.get(r.websiteId) ?? emptyCounts();
       c[bucketOf(r.status)] += r.n;
+      if (r.status === 'blocked' || r.status === 'skipped') c.failed += r.n;
       c.total += r.n;
       map.set(r.websiteId, c);
     }

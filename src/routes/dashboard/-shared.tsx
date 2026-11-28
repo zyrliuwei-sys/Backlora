@@ -62,6 +62,8 @@ export interface WebsiteCounts {
   inProgress: number;
   needsUser: number;
   done: number;
+  blocked: number;
+  skipped: number;
   failed: number;
   pending: number;
 }

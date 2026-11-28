@@ -4,6 +4,23 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-28 — Split failed and skipped website tasks
+
+The project list shows blocked attempts and deliberate skips separately.
+Existing callers can still use the combined `counts.failed`. A URL that
+repeatedly becomes unavailable ranks lower even with an older receipt, and
+a newer confirmed submission restores its priority. Agent commands preserve
+the target tab while checking Gmail. No database migration is required.
+
+## 2026-11-28 — Reuse the saved Backlora API credential
+
+Copied commands instruct agents to load the key once and reuse the same
+credential for preflight, claiming, queries, and reports. Local Codex
+automations can call `scripts/backlora-agent-request.py <automation-id> GET
+<path>` with Python 3.11 or newer. POST reads a JSON object from standard
+input. The client reads the configured origin and key directly from the saved
+automation, and refuses redirects. No database migration is required.
+
 ## 2026-11-27 — Claim free backlink URLs with submission evidence first
 
 Website tasks first use eligible URLs that were accepted or verified live for

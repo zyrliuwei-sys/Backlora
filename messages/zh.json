@@ -1564,6 +1564,7 @@
   "dash.websites.in_progress": "进行中",
   "dash.websites.needs_user": "需处理",
   "dash.websites.failed": "失败",
+  "dash.websites.skipped": "已跳过",
   "dash.websites.add": "添加",
   "dash.websites.records": "外链",
   "dash.websites.duplicate": "复制",
