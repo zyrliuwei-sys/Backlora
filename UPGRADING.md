@@ -4,6 +4,16 @@ Read this when a project built from this template pulls newer template code.
 Entries are newest first. Apply **every entry dated after the template version
 the project last pulled**, oldest of those first.
 
+## 2026-11-28 — Retry temporary backlink blockers once after the first pass
+
+When the unfiltered free website queue has finished its first pass, the next
+claim can retry a first attempt marked `site_down` or `queue_full` after 24
+hours. The claim identifies an automatic retry with `queue.automatic_retry`.
+It carries the original evidence, so the agent can look for any prior receipt
+or draft. Manual requeue remains available. The records list previews the
+reported blocker and puts its evidence and next step at the top of Details.
+No database migration is required.
+
 ## 2026-11-28 — Split failed and skipped website tasks
 
 The project list shows blocked attempts and deliberate skips separately.

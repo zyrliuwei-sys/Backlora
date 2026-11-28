@@ -1600,6 +1600,117 @@ test('requeue is guarded, concurrent-safe, owner-scoped and preserves evidence',
   assert.equal(task.result_url, 'https://directory.example.test/draft');
 });
 
+test('a project finishes first-pass work before automatically retrying an outage once', async () => {
+  const id = await fixture();
+  const queued = { data_source: 'website' };
+  const older = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  await record(id, 'first-pass', 'pending', {
+    targetUrl: `https://directory.example.test/${id}`,
+  });
+  await record(id, 'outage', 'blocked', {
+    attemptCount: 1,
+    failureReason: 'site_down',
+    proof: 'The official submission form timed out before a submit action.',
+    updatedAt: older,
+  });
+  const first = (await claim(id, queued)).task!;
+  assert.equal(first.id, `${id}-first-pass`);
+  assert.equal(
+    (await claim(id, { ...queued, worker_id: `${id}-another` })).task,
+    null
+  );
+  await reportResult(id, first.id, {
+    worker_id: first.claimed_by,
+    lease_id: first.lease_id,
+    status: 'submitted',
+    proof: 'Submission received.',
+  });
+
+  const claims = await Promise.all([
+    claim(id, queued),
+    claim(id, { ...queued, worker_id: `${id}-another` }),
+  ]);
+  const retried = claims.find((result) => result.task);
+  assert.equal(claims.filter((result) => result.task).length, 1);
+  assert.equal(retried?.queue?.automatic_retry, true);
+  const task = retried!.task!;
+  assert.equal(task.id, `${id}-outage`);
+  assert.equal(task.attempt_count, 2);
+  assert.equal(task.is_retry, true);
+  assert.equal(task.failure_reason, 'site_down');
+  assert.match(task.proof!, /before a submit action/);
+  await reportResult(id, task.id, {
+    worker_id: task.claimed_by,
+    lease_id: task.lease_id,
+    status: 'blocked',
+    reason: 'site_down',
+    last_error: 'The official form is still unavailable.',
+  });
+  await db()
+    .update(websiteBacklink)
+    .set({ updatedAt: older })
+    .where(eq(websiteBacklink.id, task.id));
+  assert.equal((await claim(id, queued)).task, null);
+  assert.equal((await retryRecords(id, [task.id])).updated, 1);
+  assert.equal((await claim(id, queued)).task?.attempt_count, 3);
+});
+
+test('automatic retry respects the cooldown, manual blockers and possible prior results', async () => {
+  const id = await fixture();
+  const queued = { data_source: 'website' };
+  const older = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  await record(id, 'received', 'submitted', {
+    targetUrl: `https://directory.example.test/${id}`,
+    attemptCount: 1,
+  });
+  for (const reason of [
+    'account',
+    'email_verify',
+    'missing_info',
+    'reciprocal',
+    'paid',
+    'forbidden',
+    'result_unknown',
+    'no_entry',
+  ]) {
+    await record(id, reason, 'skipped', {
+      attemptCount: 1,
+      failureReason: reason,
+      updatedAt: older,
+    });
+  }
+  await record(id, 'uncertain', 'blocked', {
+    attemptCount: 1,
+    failureReason: 'site_down',
+    updatedAt: older,
+    resultUrl: 'https://directory.example.test/draft',
+  });
+  await record(id, 'full', 'needs_user', {
+    attemptCount: 1,
+    failureReason: 'queue_full',
+    needsUser: 'Check the free slots later.',
+  });
+  await record(id, 'other-project-outage', 'blocked', {
+    websiteId: `${id}-other`,
+    attemptCount: 1,
+    failureReason: 'site_down',
+    updatedAt: older,
+  });
+  assert.equal((await claim(id, queued)).task, null);
+  await db()
+    .update(websiteBacklink)
+    .set({ updatedAt: older })
+    .where(eq(websiteBacklink.id, `${id}-full`));
+  assert.equal(
+    (await claim(id, { ...queued, category: 'directory' })).task,
+    null
+  );
+  const task = (await claim(id, queued)).task!;
+  assert.equal(task.id, `${id}-full`);
+  assert.equal(task.attempt_count, 2);
+  assert.equal(task.needs_user, 'Check the free slots later.');
+});
+
 test('failed reports require a reason, while identical successful retries are idempotent', async () => {
   const id = await fixture();
   const task = (await claim(id)).task!;

@@ -58,6 +58,7 @@ import {
 } from './websites';
 
 const FINAL = ['submitted', 'live', 'duplicate'] as const;
+const AUTO_RETRY_DELAY_MS = 24 * 60 * 60 * 1000;
 const MISSING_GOOGLE_LOGIN =
   'Set the project Google login email before starting backlink tasks';
 
@@ -363,7 +364,7 @@ function claimPriority(userId: string, target: SQL, acceptedOnly: boolean) {
     else 2 end`;
 }
 
-/** Claim one existing pending record of the website. */
+/** Claim one pending record or, after the first pass, one eligible retry. */
 async function claimExisting(
   userId: string,
   w: Website,
@@ -373,8 +374,71 @@ async function claimExisting(
   scope: TaskScope,
   category?: string,
   includePaid = false,
-  acceptedOnly = false
+  {
+    acceptedOnly = false,
+    retryBefore,
+  }: {
+    acceptedOnly?: boolean;
+    retryBefore?: Date;
+  } = {}
 ): Promise<WebsiteBacklink | null> {
+  const project = and(
+    eq(websiteBacklink.userId, userId),
+    eq(websiteBacklink.websiteId, w.id)
+  );
+  const available = and(
+    includePaid
+      ? undefined
+      : notPreviouslyPaid(userId, sql`${websiteBacklink.targetUrl}`),
+    // Turned off in the user's library: stop working it everywhere.
+    sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${websiteBacklink.backlinkId} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`,
+    ...sourceConditions(userId, source),
+    // Manually added records have no known category or cost.
+    source === 'website' && scope === 'all_eligible' && !category
+      ? or(
+          isNull(websiteBacklink.backlinkId),
+          and(...eligibility(scope, undefined, includePaid))
+        )
+      : and(...eligibility(scope, category, includePaid))
+  );
+  const pending = eq(websiteBacklink.operationStatus, 'pending');
+  const attemptStatus = retryBefore
+    ? and(
+        inArray(websiteBacklink.operationStatus, [
+          'needs_user',
+          'blocked',
+          'skipped',
+        ]),
+        inArray(websiteBacklink.failureReason, ['site_down', 'queue_full']),
+        eq(websiteBacklink.attemptCount, 1),
+        lte(websiteBacklink.updatedAt, retryBefore),
+        isNull(websiteBacklink.resultUrl),
+        isNull(websiteBacklink.submittedAt)
+      )
+    : pending;
+  const firstPassFinished = retryBefore
+    ? and(
+        notExists(
+          db()
+            .select({ one: sql`1` })
+            .from(websiteBacklink)
+            .where(
+              and(
+                project,
+                eq(websiteBacklink.operationStatus, 'in_progress'),
+                lte(websiteBacklink.attemptCount, 1)
+              )
+            )
+        ),
+        notExists(
+          db()
+            .select({ one: sql`1` })
+            .from(websiteBacklink)
+            .leftJoin(backlink, eq(backlink.id, websiteBacklink.backlinkId))
+            .where(and(project, pending, available))
+        )
+      )
+    : undefined;
   for (let attempt = 0; attempt < 5; attempt++) {
     const [candidate]: { id: string }[] = await db()
       .select({ id: websiteBacklink.id })
@@ -382,31 +446,23 @@ async function claimExisting(
       .leftJoin(backlink, eq(backlink.id, websiteBacklink.backlinkId))
       .where(
         and(
-          eq(websiteBacklink.userId, userId),
-          eq(websiteBacklink.websiteId, w.id),
-          eq(websiteBacklink.operationStatus, 'pending'),
+          project,
+          attemptStatus,
+          available,
+          firstPassFinished,
           acceptedOnly
             ? acceptedAndAvailable(userId, sql`${websiteBacklink.targetUrl}`)
-            : undefined,
-          includePaid
-            ? undefined
-            : notPreviouslyPaid(userId, sql`${websiteBacklink.targetUrl}`),
-          // Turned off in the user's library: stop working it everywhere.
-          sql`not exists (select 1 from ${userBacklink} where ${userBacklink.backlinkId} = ${websiteBacklink.backlinkId} and ${userBacklink.userId} = ${userId} and ${userBacklink.enabled} = 0)`,
-          ...sourceConditions(userId, source),
-          // Records added by hand have no library entry, so nothing is known
-          // about their category or cost: only all_eligible without a
-          // category filter takes them.
-          source === 'website' && scope === 'all_eligible' && !category
-            ? or(
-                isNull(websiteBacklink.backlinkId),
-                and(...eligibility(scope, undefined, includePaid))
-              )
-            : and(...eligibility(scope, category, includePaid))
+            : undefined
         )
       )
       .orderBy(
-        claimPriority(userId, sql`${websiteBacklink.targetUrl}`, acceptedOnly),
+        retryBefore
+          ? asc(websiteBacklink.updatedAt)
+          : claimPriority(
+              userId,
+              sql`${websiteBacklink.targetUrl}`,
+              acceptedOnly
+            ),
         sql`${backlink.dr} is null`,
         desc(backlink.dr),
         asc(websiteBacklink.createdAt)
@@ -428,8 +484,9 @@ async function claimExisting(
           .where(
             and(
               eq(websiteBacklink.id, candidate.id),
-              // Lost the race if another worker took it in between.
-              eq(websiteBacklink.operationStatus, 'pending')
+              // Recheck the retry window and first-pass work under the claim lock.
+              attemptStatus,
+              firstPassFinished
             )
           ),
       ]);
@@ -672,7 +729,7 @@ export async function startTask(userId: string, body: StartBody) {
         claimScope,
         category,
         false,
-        true
+        { acceptedOnly: true }
       );
       if (assigned) return claimedTask(userId, assigned);
       const personal = await claimFromLibrary(
@@ -738,6 +795,29 @@ export async function startTask(userId: string, body: StartBody) {
         return {
           ...(await claimedTask(userId, row)),
           queue: { source: 'personal', effective_scope: 'recommended' },
+        };
+      }
+    }
+  }
+
+  if (useWebsiteFallback && !category) {
+    const retryBefore = new Date(Date.now() - AUTO_RETRY_DELAY_MS);
+    for (const { website: w, email } of readySites) {
+      const row = await claimExisting(
+        userId,
+        w,
+        workerId,
+        email,
+        'website',
+        claimScope,
+        undefined,
+        false,
+        { retryBefore }
+      );
+      if (row) {
+        return {
+          ...(await claimedTask(userId, row)),
+          queue: { effective_scope: claimScope, automatic_retry: true },
         };
       }
     }

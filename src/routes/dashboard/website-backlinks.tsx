@@ -115,8 +115,17 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <div className="text-muted-foreground text-sm">{label}</div>
-      <div className="text-sm break-words">{children || '-'}</div>
+      <div className="text-sm break-words whitespace-pre-wrap">
+        {children || '-'}
+      </div>
     </div>
+  );
+}
+
+function hasBlocker(record: WebsiteRecord) {
+  return (
+    !!record.failureReason ||
+    ['needs_user', 'blocked', 'skipped'].includes(record.operationStatus)
   );
 }
 
@@ -127,12 +136,46 @@ function RecordDetailDialog({
   record: WebsiteRecord | null;
   onClose: () => void;
 }) {
+  const blocked = r && hasBlocker(r);
   return (
     <Dialog open={!!r} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{m['dash.records.detail']()}</DialogTitle>
         </DialogHeader>
+        {r && blocked && (
+          <section className="bg-muted/40 space-y-3 rounded-lg border p-4">
+            <h3 className="text-sm font-semibold">
+              {m['dash.records.blocker']()}
+              {r.failureReason && (
+                <Badge variant="outline" className="ml-2">
+                  {reasonText(r.failureReason)}
+                </Badge>
+              )}
+            </h3>
+            <Detail label={m['dash.records.target_url']()}>
+              <ExternalLink href={r.targetUrl} />
+            </Detail>
+            {r.lastError && (
+              <Detail label={m['dash.records.last_error']()}>
+                {r.lastError}
+              </Detail>
+            )}
+            {r.proof && (
+              <Detail label={m['dash.records.proof']()}>{r.proof}</Detail>
+            )}
+            {r.needsUser && (
+              <Detail label={m['dash.records.needs_user']()}>
+                {r.needsUser}
+              </Detail>
+            )}
+            {!r.lastError && !r.proof && !r.needsUser && (
+              <p className="text-muted-foreground text-sm">
+                {m['dash.records.blocker_missing']()}
+              </p>
+            )}
+          </section>
+        )}
         {r && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Detail label={m['dash.codex.website']()}>{r.websiteName}</Detail>
@@ -145,9 +188,11 @@ function RecordDetailDialog({
             <Detail label={m['dash.records.target_domain']()}>
               {r.targetDomain}
             </Detail>
-            <Detail label={m['dash.records.target_url']()}>
-              {r.targetUrl}
-            </Detail>
+            {!blocked && (
+              <Detail label={m['dash.records.target_url']()}>
+                <ExternalLink href={r.targetUrl} />
+              </Detail>
+            )}
             <Detail label={m['dash.records.description']()}>
               {r.description}
             </Detail>
@@ -168,13 +213,9 @@ function RecordDetailDialog({
             <Detail label={m['dash.records.result_url']()}>
               {r.resultUrl && <ExternalLink href={r.resultUrl} />}
             </Detail>
-            <Detail label={m['dash.records.proof']()}>{r.proof}</Detail>
-            <Detail label={m['dash.records.reason']()}>
-              {reasonText(r.failureReason)}
-            </Detail>
-            <Detail label={m['dash.records.needs_user']()}>
-              {r.needsUser}
-            </Detail>
+            {!blocked && r.proof && (
+              <Detail label={m['dash.records.proof']()}>{r.proof}</Detail>
+            )}
             <Detail label={m['dash.records.claimed_by']()}>
               {r.claimedBy}
             </Detail>
@@ -186,9 +227,6 @@ function RecordDetailDialog({
             </Detail>
             <Detail label={m['dash.records.attempts']()}>
               {String(r.attemptCount)}
-            </Detail>
-            <Detail label={m['dash.records.last_error']()}>
-              {r.lastError}
             </Detail>
             <Detail label={m['dash.common.created']()}>
               {formatTime(r.createdAt)}
@@ -976,6 +1014,18 @@ function RecordsPage() {
                     <div className="text-muted-foreground mt-1 text-xs">
                       {reasonText(r.failureReason)}
                     </div>
+                  )}
+                  {hasBlocker(r) && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground mt-1 line-clamp-2 max-w-52 text-left text-xs break-words whitespace-normal hover:underline"
+                      onClick={() => setViewing(r)}
+                    >
+                      {r.lastError ||
+                        r.needsUser ||
+                        r.proof ||
+                        m['dash.records.blocker_missing']()}
+                    </button>
                   )}
                 </TableCell>
                 <TableCell>
